@@ -964,122 +964,346 @@ function pmSwitch(tab) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  G-127: PARÁMETROS OPERATIVOS (versión funcional)
-// ════════════════════════════════════════════════════════════
+//  G-127: PARÁMETROS OPERATIVOS
+//  Equipos cargados desde G125_MATRIX — misma fuente que G-125
+//  Campos de parámetros se adaptan según el tipo de equipo
+// ════════════════════════════════════════════════════════════════════
+
+// Tipos de equipo y sus parámetros específicos
+var G127_TIPOS = {
+  'MOTOR': {
+    label: 'Motor Principal / Propulsión',
+    params: [
+      {id:'rpm',      label:'RPM',              tipo:'number', unit:'rpm',  ref:'1500–1800'},
+      {id:'temp',     label:'Temp. Agua',        tipo:'number', unit:'°C',   ref:'75–88'},
+      {id:'plo',      label:'Presión Aceite',    tipo:'number', unit:'psi',  ref:'45–80'},
+      {id:'pfo',      label:'Presión Combustible',tipo:'number',unit:'psi',  ref:'4–8'},
+      {id:'temp_esc', label:'Temp. Escape',      tipo:'number', unit:'°C',   ref:'350–450'},
+      {id:'humo',     label:'Color Humo',        tipo:'select', opts:['NOR','N-Negro','B-Blanco','A-Azul']},
+      {id:'volt',     label:'Voltaje Alternador',tipo:'number', unit:'V',    ref:'24–28.8'},
+      {id:'consumo',  label:'Consumo Petróleo',  tipo:'number', unit:'gal',  ref:''},
+      {id:'millas',   label:'Millas Recorridas', tipo:'number', unit:'mn',   ref:''},
+      {id:'hini',     label:'Hora Inicio',       tipo:'number', unit:'h',    ref:''},
+      {id:'hfin',     label:'Hora Final',        tipo:'number', unit:'h',    ref:''},
+    ]
+  },
+  'GENERADOR': {
+    label: 'Grupo Electrógeno',
+    params: [
+      {id:'rpm',      label:'RPM',              tipo:'number', unit:'rpm',  ref:'1500'},
+      {id:'temp',     label:'Temp. Agua',        tipo:'number', unit:'°C',   ref:'75–88'},
+      {id:'plo',      label:'Presión Aceite',    tipo:'number', unit:'psi',  ref:'45–80'},
+      {id:'volt',     label:'Voltaje',           tipo:'number', unit:'V',    ref:'220/380'},
+      {id:'amp',      label:'Amperaje',          tipo:'number', unit:'A',    ref:''},
+      {id:'frec',     label:'Frecuencia',        tipo:'number', unit:'Hz',   ref:'60'},
+      {id:'humo',     label:'Color Humo',        tipo:'select', opts:['NOR','N-Negro','B-Blanco','A-Azul']},
+      {id:'consumo',  label:'Consumo Petróleo',  tipo:'number', unit:'gal',  ref:''},
+      {id:'hini',     label:'Hora Inicio',       tipo:'number', unit:'h',    ref:''},
+      {id:'hfin',     label:'Hora Final',        tipo:'number', unit:'h',    ref:''},
+    ]
+  },
+  'HIDRAULICO': {
+    label: 'Equipo Hidráulico / Grúa / Fondeo',
+    params: [
+      {id:'pres_hid', label:'Presión Hidráulica',tipo:'number', unit:'bar',  ref:'120–180'},
+      {id:'temp_hid', label:'Temp. Aceite Hid.', tipo:'number', unit:'°C',   ref:'< 60'},
+      {id:'nivel',    label:'Nivel Aceite',      tipo:'select', opts:['OK','Bajo','Crítico']},
+      {id:'fugas',    label:'Fugas visibles',    tipo:'select', opts:['NO','SÍ']},
+      {id:'hini',     label:'Hora Inicio Operación',tipo:'number',unit:'h',  ref:''},
+      {id:'hfin',     label:'Hora Fin Operación',tipo:'number', unit:'h',    ref:''},
+    ]
+  },
+  'ELECTRICO': {
+    label: 'Motor Eléctrico / Electrobomba',
+    params: [
+      {id:'volt',     label:'Voltaje',           tipo:'number', unit:'V',    ref:'220/380'},
+      {id:'amp',      label:'Amperaje',          tipo:'number', unit:'A',    ref:''},
+      {id:'temp_bob', label:'Temp. Bobinado',    tipo:'number', unit:'°C',   ref:'< 80'},
+      {id:'vibr',     label:'Vibración',         tipo:'select', opts:['Normal','Elevada','Crítica']},
+      {id:'ruido',    label:'Ruido',             tipo:'select', opts:['Normal','Anormal']},
+    ]
+  },
+  'OSMOSIS': {
+    label: 'Planta de Ósmosis',
+    params: [
+      {id:'pres_ent', label:'Presión Entrada',   tipo:'number', unit:'bar',  ref:'4–6'},
+      {id:'pres_sal', label:'Presión Salida',    tipo:'number', unit:'bar',  ref:''},
+      {id:'caudal',   label:'Caudal Producido',  tipo:'number', unit:'l/h',  ref:''},
+      {id:'tds',      label:'TDS Agua Producida',tipo:'number', unit:'ppm',  ref:'< 500'},
+      {id:'estado_mb',label:'Estado Membrana',   tipo:'select', opts:['OK','Reducido','Cambio necesario']},
+    ]
+  },
+  'OTRO': {
+    label: 'Otro equipo / Auxiliar',
+    params: [
+      {id:'estado',   label:'Estado General',    tipo:'select', opts:['Operativo','Falla menor','Fuera de servicio']},
+      {id:'hini',     label:'Horas Operación',   tipo:'number', unit:'h',    ref:''},
+    ]
+  }
+};
+
+// Detectar tipo de equipo a partir del nombre
+function g127DetectarTipo(nombreEquipo) {
+  var n = nombreEquipo.toLowerCase();
+  if (n.indexOf('motor principal') >= 0 || n.indexOf('propuls') >= 0) return 'MOTOR';
+  if (n.indexOf('electrógeno') >= 0 || n.indexOf('electrogeno') >= 0 || n.indexOf('generador') >= 0) return 'GENERADOR';
+  if (n.indexOf('hidráulico') >= 0 || n.indexOf('hidraulico') >= 0 ||
+      n.indexOf('grúa') >= 0 || n.indexOf('grua') >= 0 ||
+      n.indexOf('winche') >= 0 || n.indexOf('fondeo') >= 0 ||
+      n.indexOf('timón') >= 0 || n.indexOf('timon') >= 0) return 'HIDRAULICO';
+  if (n.indexOf('electrobomba') >= 0 || n.indexOf('motor eléctrico') >= 0 ||
+      n.indexOf('motor electrico') >= 0 || n.indexOf('contraincendio') >= 0) return 'ELECTRICO';
+  if (n.indexOf('ósmosis') >= 0 || n.indexOf('osmosis') >= 0) return 'OSMOSIS';
+  return 'OTRO';
+}
+
+// ── G-127 Principal ──────────────────────────────────────────────
 function pmBuildG127(container) {
-  var embOpts = '<option value="">Seleccionar...</option>';
-  var embs = APP.data.embarcaciones || [];
+  var hoy = new Date().toISOString().split('T')[0];
+  var embs = Object.keys(G125_MATRIX);
+  var embOpts = '<option value="">— Seleccionar embarcación —</option>';
   for (var i = 0; i < embs.length; i++) {
-    embOpts += '<option value="' + embs[i].ID + '">' + embs[i].NOMBRE + '</option>';
+    embOpts += '<option>' + embs[i] + '</option>';
   }
 
   container.innerHTML =
     '<div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">'
-    + '<div style="background:#6a1b9a;color:white;padding:12px 20px;display:flex;justify-content:space-between;align-items:center">'
-    + '<div><div style="font-size:9px;opacity:.7;text-transform:uppercase">Formato</div>'
-    + '<div style="font-size:22px;font-weight:900">G-127</div></div>'
-    + '<div style="font-size:12px;font-weight:600">Parámetros Operativos Diarios</div>'
+    + '<div style="background:#6a1b9a;color:white;padding:14px 20px;display:flex;justify-content:space-between;align-items:center">'
+    + '<div><div style="font-size:9px;opacity:.7;text-transform:uppercase;letter-spacing:1px">Formato de Inspección</div>'
+    + '<div style="font-size:24px;font-weight:900;line-height:1">G-127</div>'
+    + '<div style="font-size:11px;opacity:.8;margin-top:2px">Parámetros Operativos — Inspección Semanal / Quincenal</div></div>'
+    + '<div style="text-align:right;font-size:11px;opacity:.7">Ingreso de parámetros<br>por equipo y turno</div>'
     + '</div>'
-    + '<div class="section-body">'
-    + '<div class="form-grid-3">'
-    + '<div class="form-group"><label class="form-label">Embarcación *</label>'
-    + '<select class="form-control" id="pm_emb" onchange="cargarEquiposParam()">'
-    + embOpts + '</select></div>'
-    + '<div class="form-group"><label class="form-label">Equipo *</label>'
-    + '<select class="form-control" id="pm_equipo"><option>Seleccionar embarcación...</option></select></div>'
-    + '<div class="form-group"><label class="form-label">Código</label>'
-    + '<input class="form-control" id="pm_codigo" placeholder="G-127"></div>'
-    + '<div class="form-group"><label class="form-label">Insp. Visual</label>'
-    + '<select class="form-control" id="pm_insp_vis"><option value="OK">OK</option><option value="NO OK">NO OK</option><option value="N/A">N/A</option></select></div>'
-    + '<div class="form-group"><label class="form-label">Horas Operación</label>'
-    + '<input class="form-control" type="number" id="pm_horas_op" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Horómetro Actual</label>'
-    + '<input class="form-control" type="number" id="pm_horom" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Horóm. Último Mant.</label>'
-    + '<input class="form-control" type="number" id="pm_horom_ult" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Horóm. Próx. Mant.</label>'
-    + '<input class="form-control" type="number" id="pm_horom_prox" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Humo</label>'
-    + '<select class="form-control" id="pm_humo"><option value="NOR">NOR-Normal</option><option value="N">N-Negro</option><option value="B">B-Blanco</option><option value="A">A-Azul</option></select></div>'
-    + '<div class="form-group"><label class="form-label">RPM</label>'
-    + '<input class="form-control" type="number" id="pm_rpm" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Temp. Agua (°C)</label>'
-    + '<input class="form-control" type="number" id="pm_temp" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">P° Aceite (Psi)</label>'
-    + '<input class="form-control" type="number" id="pm_plo" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">P° Combustible (Psi)</label>'
-    + '<input class="form-control" type="number" id="pm_pfo" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Voltaje (V)</label>'
-    + '<input class="form-control" type="number" id="pm_volt" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Consumo Petróleo (gal)</label>'
-    + '<input class="form-control" type="number" id="pm_comb" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Millas Recorridas</label>'
-    + '<input class="form-control" type="number" id="pm_millas" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Hora Inicial</label>'
-    + '<input class="form-control" type="number" id="pm_hora_ini" value="0"></div>'
-    + '<div class="form-group"><label class="form-label">Hora Final</label>'
-    + '<input class="form-control" type="number" id="pm_hora_fin" value="0"></div>'
-    + '<div class="form-group form-full"><label class="form-label">Observaciones</label>'
-    + '<textarea class="form-control" id="pm_obs" rows="2"></textarea></div>'
+    // ── CABECERA: Embarcación / Equipo / Fecha
+    + '<div style="padding:16px 20px;background:#f9f0ff;border-bottom:1px solid #e1bee7">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end">'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Embarcación *</label>'
+    + '<select id="g127_emb" onchange="g127LoadEquipos()" class="form-control">' + embOpts + '</select></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Equipo *</label>'
+    + '<select id="g127_eq" onchange="g127LoadParams()" class="form-control"><option value="">Seleccionar embarcación primero</option></select></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Fecha *</label>'
+    + '<input type="date" id="g127_fecha" value="' + hoy + '" class="form-control"></div>'
     + '</div>'
-    + '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">'
-    + '<button class="btn btn-outline" onclick="renderParametros()">🔄 Limpiar</button>'
-    + '<button class="btn btn-primary" style="background:#6a1b9a" onclick="guardarParametrosForm()">💾 Registrar G-127</button>'
-    + '</div></div></div>';
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:10px">'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Responsable *</label>'
+    + '<input id="g127_resp" placeholder="Nombre del técnico" class="form-control"></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Tipo Inspección</label>'
+    + '<select id="g127_tipo" class="form-control">'
+    + '<option value="SEMANAL">Semanal</option>'
+    + '<option value="QUINCENAL">Quincenal</option>'
+    + '<option value="MENSUAL">Mensual</option>'
+    + '</select></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Horómetro Actual</label>'
+    + '<input type="number" id="g127_horom" value="0" step="0.5" class="form-control"></div>'
+    + '</div></div>'
+    // ── PANEL DE PARÁMETROS (se genera dinámicamente)
+    + '<div id="g127_params" style="padding:16px 20px">'
+    + '<div style="text-align:center;padding:40px;color:#aaa">'
+    + '<div style="font-size:32px;margin-bottom:8px">⚙️</div>'
+    + '<div style="font-size:13px;font-weight:600">Selecciona la embarcación y el equipo</div>'
+    + '<div style="font-size:11px;margin-top:4px">Los parámetros se adaptan automáticamente al tipo de equipo</div>'
+    + '</div></div>'
+    // ── ACCIONES
+    + '<div id="g127_footer" style="display:none;padding:14px 20px;background:#f9f0ff;border-top:1px solid #e1bee7;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-outline" onclick="pmSwitch(\'g127\')">🔄 Limpiar</button>'
+    + '<button style="padding:10px 22px;background:#6a1b9a;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 3px 10px rgba(106,27,154,.4)" onclick="g127Guardar()">💾 Registrar G-127</button>'
+    + '</div>'
+    + '<div style="padding:14px 20px">'
+    + '<div style="font-size:12px;font-weight:700;color:#6a1b9a;margin-bottom:8px">📋 Últimos registros de este equipo</div>'
+    + '<div id="g127_hist" style="font-size:12px;color:#aaa;font-style:italic">Selecciona un equipo para ver su historial</div>'
+    + '</div>'
+    + '</div>';
 }
 
-function cargarEquiposParam() {
-  var embId = document.getElementById('pm_emb').value;
-  var equipos = (APP.data.equipos || []).filter(function(e){ return e.ID_EMBARCACION === embId; });
-  var sel = document.getElementById('pm_equipo');
+// Cargar equipos según embarcación seleccionada (desde G125_MATRIX)
+function g127LoadEquipos() {
+  var emb = document.getElementById('g127_emb').value;
+  var sel = document.getElementById('g127_eq');
+  var params = document.getElementById('g127_params');
   if (!sel) return;
-  var html = '<option value="">Seleccionar equipo...</option>';
-  for (var i = 0; i < equipos.length; i++) {
-    html += '<option value="' + equipos[i].ID_EQUIPO + '">' + equipos[i].NOMBRE_EQUIPO + '</option>';
+
+  if (!emb) {
+    sel.innerHTML = '<option value="">Seleccionar embarcación primero</option>';
+    if (params) params.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa"><div style="font-size:32px">⚙️</div><div style="font-size:13px;font-weight:600;margin-top:8px">Selecciona la embarcación</div></div>';
+    return;
   }
+
+  var grupos = G125_MATRIX[emb] || [];
+  var html = '<option value="">— Seleccionar equipo —</option>';
+  var lastSys = '';
+  for (var i = 0; i < grupos.length; i++) {
+    var g = grupos[i];
+    if (g.sistema !== lastSys) {
+      if (lastSys) html += '</optgroup>';
+      html += '<optgroup label="' + g.sistema + '">';
+      lastSys = g.sistema;
+    }
+    var tipo = g127DetectarTipo(g.equipo);
+    html += '<option value="' + g.equipo + '" data-tipo="' + tipo + '">' + g.equipo + '</option>';
+  }
+  if (lastSys) html += '</optgroup>';
   sel.innerHTML = html;
+
+  // Reset params
+  if (params) params.innerHTML = '<div style="text-align:center;padding:30px;color:#aaa"><div style="font-size:12px">Selecciona el equipo para cargar sus parámetros</div></div>';
+  var footer = document.getElementById('g127_footer');
+  if (footer) footer.style.display = 'none';
 }
 
-function guardarParametrosForm() {
-  var embEl = document.getElementById('pm_emb');
-  var eqEl  = document.getElementById('pm_equipo');
-  if (!embEl || !embEl.value) { showToast('Selecciona una embarcación', 'error'); return; }
-  var emb = (APP.data.embarcaciones || []).find(function(e){ return e.ID === embEl.value; });
+// Generar campos de parámetros según tipo de equipo
+function g127LoadParams() {
+  var sel    = document.getElementById('g127_eq');
+  var params = document.getElementById('g127_params');
+  var footer = document.getElementById('g127_footer');
+  if (!sel || !sel.value || !params) return;
+
+  var eqNom  = sel.value;
+  var tipo   = g127DetectarTipo(eqNom);
+  var config = G127_TIPOS[tipo] || G127_TIPOS['OTRO'];
+
+  var html = '<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">'
+    + '<div style="background:#6a1b9a;color:white;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px">' + config.label + '</div>'
+    + '<div style="font-size:11px;color:#888">Los campos marcados con ⚠️ tienen rango de referencia</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">';
+
+  for (var i = 0; i < config.params.length; i++) {
+    var p = config.params[i];
+    var hasRef = p.ref && p.ref.length > 0;
+    html += '<div style="background:' + (hasRef ? '#f9f0ff' : '#fafafa') + ';border:1px solid ' + (hasRef ? '#ce93d8' : '#e0e0e0') + ';border-radius:8px;padding:10px 12px">';
+    html += '<label style="font-size:10px;font-weight:700;color:#6a1b9a;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">';
+    html += (hasRef ? '⚠️ ' : '') + p.label;
+    if (p.unit) html += ' <span style="color:#aaa;font-weight:400">(' + p.unit + ')</span>';
+    html += '</label>';
+
+    if (p.tipo === 'select') {
+      html += '<select id="g127p_' + p.id + '" class="form-control" style="font-size:12px;padding:6px 8px">';
+      for (var j = 0; j < p.opts.length; j++) {
+        html += '<option>' + p.opts[j] + '</option>';
+      }
+      html += '</select>';
+    } else {
+      html += '<input type="number" id="g127p_' + p.id + '" value="0" step="0.5" class="form-control" style="font-size:13px;padding:6px 8px">';
+    }
+
+    if (hasRef) html += '<div style="font-size:10px;color:#9c27b0;margin-top:3px">Referencia: ' + p.ref + '</div>';
+    html += '</div>';
+  }
+
+  // Inspección visual siempre al final
+  html += '<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 12px">';
+  html += '<label style="font-size:10px;font-weight:700;color:#f57f17;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">Inspección Visual</label>';
+  html += '<select id="g127p_insp_vis" class="form-control" style="font-size:12px;padding:6px 8px"><option>OK</option><option>NO OK</option><option>N/A</option></select>';
+  html += '</div>';
+
+  // Observaciones full width
+  html += '</div><div style="margin-top:10px">';
+  html += '<label style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:4px">Observaciones</label>';
+  html += '<textarea id="g127p_obs" rows="2" placeholder="Anomalías, ruidos, fugas, observaciones del turno..." class="form-control" style="font-size:13px;resize:vertical"></textarea>';
+  html += '</div>';
+
+  params.innerHTML = html;
+  if (footer) footer.style.display = 'flex';
+
+  // Cargar historial
+  g127LoadHist();
+}
+
+// Guardar G-127
+function g127Guardar() {
+  var emb    = document.getElementById('g127_emb').value;
+  var eq     = document.getElementById('g127_eq').value;
+  var fecha  = document.getElementById('g127_fecha').value;
+  var resp   = (document.getElementById('g127_resp').value || '').trim();
+  var horom  = document.getElementById('g127_horom').value;
+  var tipoI  = document.getElementById('g127_tipo').value;
+
+  if (!emb)   { showToast('Selecciona la embarcación', 'error'); return; }
+  if (!eq)    { showToast('Selecciona el equipo', 'error'); return; }
+  if (!resp)  { showToast('Ingresa el nombre del responsable', 'error'); return; }
+  if (!fecha) { showToast('Selecciona la fecha', 'error'); return; }
+
+  // Recoger todos los campos de parámetros generados
+  var tipo   = g127DetectarTipo(eq);
+  var config = G127_TIPOS[tipo] || G127_TIPOS['OTRO'];
+  var params = {};
+  for (var i = 0; i < config.params.length; i++) {
+    var p = config.params[i];
+    var el = document.getElementById('g127p_' + p.id);
+    if (el) params[p.id] = el.value;
+  }
+  var inspVis = (document.getElementById('g127p_insp_vis') || {value:''}).value;
+  var obs     = (document.getElementById('g127p_obs') || {value:''}).value;
+
   var datos = {
-    ID_EMBARCACION:     embEl.value,
-    EMBARCACION:        emb ? emb.NOMBRE : embEl.options[embEl.selectedIndex].text,
-    ID_EQUIPO:          eqEl ? eqEl.value : '',
-    EQUIPO:             eqEl && eqEl.value ? eqEl.options[eqEl.selectedIndex].text : '',
-    CODIGO_GENERAL:     document.getElementById('pm_codigo').value,
-    INSPECCION_VISUAL:  document.getElementById('pm_insp_vis').value,
-    HORAS_OP:           document.getElementById('pm_horas_op').value,
-    HOROMETRO_ACTUAL:   document.getElementById('pm_horom').value,
-    HOROMETRO_ULT_MANT: document.getElementById('pm_horom_ult').value,
-    HOROMETRO_PROX_MANT:document.getElementById('pm_horom_prox').value,
-    HUMO:               document.getElementById('pm_humo').value,
-    RPM:                document.getElementById('pm_rpm').value,
-    TEMP_AGUA:          document.getElementById('pm_temp').value,
-    PRESION_LO:         document.getElementById('pm_plo').value,
-    PRESION_FO:         document.getElementById('pm_pfo').value,
-    VOLTAJE:            document.getElementById('pm_volt').value,
-    CONSUMO_PETROLEO:   document.getElementById('pm_comb').value,
-    MILLAS_RECORRIDAS:  document.getElementById('pm_millas').value,
-    HOR_INICIAL:        document.getElementById('pm_hora_ini').value,
-    HOR_FINAL:          document.getElementById('pm_hora_fin').value,
-    OBSERVACION:        document.getElementById('pm_obs').value
+    EMBARCACION:       emb,
+    EQUIPO:            eq,
+    TIPO_EQUIPO:       tipo,
+    TIPO_INSPECCION:   tipoI,
+    FECHA:             fecha,
+    RESPONSABLE:       resp,
+    HOROMETRO_ACTUAL:  horom,
+    INSPECCION_VISUAL: inspVis,
+    PARAMETROS:        JSON.stringify(params),
+    OBSERVACION:       obs
   };
+
   google.script.run
     .withSuccessHandler(function(res) {
-      if (res && res.success) { showToast(res.mensaje, 'success'); renderParametros(); }
-      else showToast((res && res.error) || 'Error al guardar', 'error');
+      if (res && res.success) {
+        showToast('✅ G-127 registrado — ' + eq + ' · ' + emb, 'success');
+        g127LoadHist();
+        // Reset solo los campos numéricos
+        var inputs = document.querySelectorAll('#g127_params input[type="number"]');
+        for (var i = 0; i < inputs.length; i++) inputs[i].value = '0';
+        document.getElementById('g127_horom').value = '0';
+      } else {
+        showToast((res && res.error) || 'Error al guardar', 'error');
+      }
     })
     .withFailureHandler(function(err) { showToast(err.message, 'error'); })
     .registrarParametros(datos);
 }
 
-// ════════════════════════════════════════════════════════════
+// Historial del equipo seleccionado
+function g127LoadHist() {
+  var el  = document.getElementById('g127_hist');
+  var emb = (document.getElementById('g127_emb') || {value:''}).value;
+  var eq  = (document.getElementById('g127_eq')  || {value:''}).value;
+  if (!el || !emb || !eq) return;
+  el.innerHTML = '<div style="color:#aaa;font-size:11px">Cargando...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      if (!rows || !rows.length) {
+        el.innerHTML = '<div style="color:#aaa;font-size:11px;font-style:italic">Sin registros previos para este equipo</div>';
+        return;
+      }
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+      var shown = rows.slice(-6).reverse();
+      for (var i = 0; i < shown.length; i++) {
+        var r = shown[i];
+        var fecha = String(r.FECHA||'').substring(0,10);
+        html += '<div style="border:1px solid #e1bee7;border-radius:8px;overflow:hidden">'
+          + '<div style="background:#6a1b9a;color:white;padding:5px 10px;font-size:11px;display:flex;justify-content:space-between">'
+          + '<span>📅 ' + fecha + '</span><span style="opacity:.75">' + (r.TIPO_INSPECCION||'') + '</span></div>'
+          + '<div style="padding:6px 10px;font-size:11px;color:#555">'
+          + '👤 ' + (r.RESPONSABLE||r.REGISTRADO_POR||'—') + '<br>'
+          + '⏱ ' + (r.HOROMETRO_ACTUAL||'—') + ' h'
+          + (r.INSPECCION_VISUAL ? '<br>👁 ' + r.INSPECCION_VISUAL : '')
+          + '</div></div>';
+      }
+      el.innerHTML = html + '</div>';
+    })
+    .withFailureHandler(function() { if(el) el.innerHTML = '<div style="color:#e53935;font-size:11px">Error al cargar</div>'; })
+    .getParametros({embarcacion: emb, equipo: eq, limit: 6});
+}
+
+// ════════════════════════════════════════════════════════════════════
 //  G-125: SEGUIMIENTO SEMANAL — ACORDEÓN POR SISTEMA
-// ════════════════════════════════════════════════════════════
+//  Equipos desde G125_MATRIX — inspección semanal/quincenal
+// ════════════════════════════════════════════════════════════════════
+
 
 const G125_MATRIX = {"GUANAY": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Motor Principal ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Sistema de Fondeo", "equipo": "Unidad Hidráulica", "componentes": [{"nombre": "Aceite Hidráulico", "horas": 500}, {"nombre": "Filtro Hidráulico", "horas": 500}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Mangueras", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}, {"sistema": "Sistema de Gobierno", "equipo": "Sistema de Timón", "componentes": [{"nombre": "Aceite hidráulico", "horas": 500}, {"nombre": "Mangueras hidráulicas", "horas": 1000}, {"nombre": "Cilindro de timón — sello", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}, {"nombre": "Válvulas de fondo", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}], "PELICANO": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Motor Principal ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Unidad Hidráulica (Timón)", "componentes": [{"nombre": "Aceite Hidráulico", "horas": 500}, {"nombre": "Filtro Hidráulico", "horas": 500}, {"nombre": "Mangueras", "horas": 1000}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Planta Ósmosis", "componentes": [{"nombre": "Filtro prefiltro 5 micras", "horas": 250}, {"nombre": "Membrana", "horas": 2500}, {"nombre": "Bomba alta presión — sello", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Electrobomba Contraincendio", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}, {"sistema": "Sistema de Gobierno", "equipo": "Sistema de Timón", "componentes": [{"nombre": "Aceite hidráulico", "horas": 500}, {"nombre": "Mangueras hidráulicas", "horas": 1000}, {"nombre": "Cilindro de timón — sello", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}, {"nombre": "Válvulas de fondo", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}], "ISLA CHINCHA": [{"sistema": "Sistema de Grúa", "equipo": "Motor Hidráulico 1", "componentes": [{"nombre": "Rodamientos", "horas": 20}, {"nombre": "Aceite-UH", "horas": 500}]}, {"sistema": "Sistema de Grúa", "equipo": "Motor Eléctrico 1", "componentes": [{"nombre": "Rodamientos", "horas": 20}, {"nombre": "Ventiladores", "horas": 20}, {"nombre": "Aceite-UH", "horas": 20}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Fondeo", "equipo": "Winche de Estribor", "componentes": [{"nombre": "Rodamientos", "horas": 50}, {"nombre": "Aceite", "horas": 50}]}, {"sistema": "Sistema de Fondeo", "equipo": "Motor Eléctrico Winche", "componentes": [{"nombre": "Rodamientos", "horas": 50}, {"nombre": "Ventiladores", "horas": 50}, {"nombre": "Aceite-UH", "horas": 20}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}]}], "DELFIN 11": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "DELFIN 12": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "ALCATRAZ": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "CISTERNA 1": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "PANGA": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Bujías / Inyectores", "horas": 500}, {"nombre": "Impeller", "horas": 250}]}]};
 
