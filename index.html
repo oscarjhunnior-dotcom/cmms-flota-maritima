@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CMMS Flota Marítima</title>
+<?!= include('styles'); ?>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo-wrap">
+      <div class="logo-icon">⚓</div>
+      <div>
+        <div class="logo-title">CMMS</div>
+        <div class="logo-sub">Flota Maritima v3.1</div>
+      </div>
+    </div>
+    <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+  </div>
+
+  <div class="nav-section-label">GESTIÓN</div>
+  <a class="nav-item active" onclick="showPage('dashboard')" data-page="dashboard">
+    <span class="nav-icon">📊</span><span class="nav-text">Dashboard</span>
+  </a>
+  <a class="nav-item" onclick="showPage('embarcaciones')" data-page="embarcaciones">
+    <span class="nav-icon">🚢</span><span class="nav-text">Embarcaciones</span>
+  </a>
+  <a class="nav-item" onclick="showPage('equipos')" data-page="equipos">
+    <span class="nav-icon">⚙️</span><span class="nav-text">Equipos</span>
+  </a>
+
+  <div class="nav-section-label">MANTENIMIENTO</div>
+  <a class="nav-item" onclick="showPage('plan-mant')" data-page="plan-mant">
+    <span class="nav-icon">📅</span><span class="nav-text">Plan de Mantenimiento</span>
+  </a>
+  <a class="nav-item" onclick="showPage('ordenes')" data-page="ordenes">
+    <span class="nav-icon">📋</span><span class="nav-text">Órdenes de Trabajo</span>
+  </a>
+  <a class="nav-item" onclick="showPage('fallas')" data-page="fallas">
+    <span class="nav-icon">⚠️</span><span class="nav-text">Registro de Fallas</span>
+  </a>
+  <a class="nav-item" onclick="showPage('parametros')" data-page="parametros">
+    <span class="nav-icon">📡</span><span class="nav-text">Parámetros Operativos</span>
+  </a>
+
+  <div class="nav-section-label">ANÁLISIS</div>
+  <a class="nav-item" onclick="showPage('kpis')" data-page="kpis">
+    <span class="nav-icon">📈</span><span class="nav-text">KPIs & Confiabilidad</span>
+  </a>
+  <a class="nav-item" onclick="showPage('criticidad')" data-page="criticidad">
+    <span class="nav-icon">🎯</span><span class="nav-text">Matriz de Criticidad</span>
+  </a>
+  <a class="nav-item" onclick="showPage('disponibilidad')" data-page="disponibilidad">
+    <span class="nav-icon">📉</span><span class="nav-text">Disponibilidad Flota</span>
+  </a>
+
+  <div class="nav-section-label">RECURSOS</div>
+  <a class="nav-item" onclick="showPage('stock')" data-page="stock">
+    <span class="nav-icon">📦</span><span class="nav-text">Stock de Repuestos</span>
+  </a>
+  <a class="nav-item" onclick="showPage('combustible')" data-page="combustible">
+    <span class="nav-icon">⛽</span><span class="nav-text">Consumo por Equipo</span>
+  </a>
+  <a class="nav-item" onclick="showPage('certificados')" data-page="certificados">
+    <span class="nav-icon">📜</span><span class="nav-text">Certificados</span>
+  </a>
+
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="user-avatar" id="userAvatar">U</div>
+      <div>
+        <div class="user-name" id="userName">Usuario</div>
+        <div class="user-role">Administrador</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<div class="main-wrap" id="mainWrap">
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="page-title" id="pageTitle">Dashboard</h1>
+    </div>
+    <div class="topbar-right">
+      <div class="alert-badge" id="alertBadge" onclick="showPage('alertas')" style="display:none">
+        <span>⚡</span><span id="alertCount">0</span>
+      </div>
+      <div class="topbar-time" id="topbarTime"></div>
+    </div>
+  </header>
+
+  <!-- PAGE CONTENT -->
+  <main class="content" id="content">
+    <div class="loading-screen" id="loadingScreen">
+      <div class="loader-anchor">⚓</div>
+      <div class="loader-text">Cargando sistema...</div>
+    </div>
+  </main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal()">
+  <div class="modal" id="modalBox" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modalTitle">Modal</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast-wrap" id="toastWrap"></div>
+
+<?!= include('app'); ?>
+</body>
+</html>
