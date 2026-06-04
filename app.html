@@ -1,0 +1,3442 @@
+<script>
+// ============================================================
+//  CMMS APP - JavaScript Principal
+// ============================================================
+
+// ─── ESTADO GLOBAL ──────────────────────────────────────────
+const APP = {
+  currentPage: 'dashboard',
+  data: {
+    embarcaciones: [],
+    sistemas: [],
+    equipos: [],
+    ordenes: [],
+    fallas: [],
+    certificados: [],
+    combustible: [],
+  stock: [],
+  combustibleHist: [],
+    kpis: [],
+    planes: []
+  },
+  loading: false
+};
+
+const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MESES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+// ─── INICIALIZACIÓN ──────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  startClock();
+  loadUserInfo();
+  initSystem();
+});
+
+function startClock() {
+  const el = document.getElementById('topbarTime');
+  function tick() {
+    const now = new Date();
+    el.textContent = now.toLocaleDateString('es-PE', { weekday:'short', day:'2-digit', month:'short' }) + ' ' +
+      now.toLocaleTimeString('es-PE', { hour:'2-digit', minute:'2-digit' });
+  }
+  tick();
+  setInterval(tick, 30000);
+}
+
+function loadUserInfo() {
+  google.script.run
+    .withSuccessHandler(u => {
+      if (u) {
+        document.getElementById('userName').textContent = u.nombre;
+        document.getElementById('userAvatar').textContent = u.nombre.charAt(0).toUpperCase();
+      }
+    })
+    .getUserInfo();
+}
+
+function initSystem() {
+  showLoading();
+  // Usar getSystemStatus (ligero) en lugar de inicializarSistema (pesado)
+  // inicializarSistema solo se necesita la primera vez — usar desde el menu de Apps Script
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        loadPage('dashboard');
+        checkAlertas();
+      } else if (res && res.error) {
+        hideLoading();
+        showToast('Error: ' + res.error, 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      hideLoading();
+      showToast('Error de conexión: ' + err.message, 'error');
+    })
+    .getSystemStatus();
+}
+
+function checkAlertas() {
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.alertas && res.alertas.length > 0) {
+        const badge = document.getElementById('alertBadge');
+        document.getElementById('alertCount').textContent = res.alertas.length;
+        badge.style.display = 'flex';
+        APP.data.alertas = res.alertas;
+      }
+    })
+    .verificarAlertas();
+}
+
+// ─── NAVEGACIÓN ─────────────────────────────────────────────
+function showPage(page) {
+  APP.currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.page === page);
+  });
+  loadPage(page);
+}
+
+const PAGE_TITLES = {
+  dashboard: 'Dashboard General',
+  embarcaciones: 'Embarcaciones',
+  equipos: 'Gestión de Equipos',
+  'plan-mant': 'Plan de Mantenimiento',
+  ordenes: 'Órdenes de Trabajo',
+  fallas: 'Registro de Fallas',
+  parametros: 'Formatos G-125 · G-126 · G-127',
+  kpis: 'KPIs & Confiabilidad',
+  criticidad: 'Matriz de Criticidad',
+  disponibilidad: 'Disponibilidad de Flota',
+  combustible: 'Control de Combustible',
+  certificados: 'Certificados Estatutarios',
+  alertas: 'Alertas del Sistema',
+  stock: '📦 Stock de Repuestos',
+  'combustible-diario': '⛽ Consumo Diario por Equipo'
+};
+
+function loadPage(page) {
+  document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || page;
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="loading-screen"><div class="loader-anchor">⚓</div><div class="loader-text">Cargando...</div></div>';
+
+  const pages = {
+    dashboard:      renderDashboard,
+    embarcaciones:  renderEmbarcaciones,
+    equipos:        renderEquipos,
+    'plan-mant':    renderPlanMant,
+    ordenes:        renderOrdenes,
+    fallas:         renderFallas,
+    parametros:     renderParametros,
+    kpis:           renderKpis,
+    criticidad:     renderCriticidad,
+    disponibilidad: renderDisponibilidad,
+    combustible:    renderCombustible,
+    certificados:   renderCertificados,
+    alertas:        renderAlertas,
+    stock:          renderStock,
+    'combustible-diario': renderCombustible
+  };
+
+  if (pages[page]) pages[page]();
+  else content.innerHTML = '<div class="empty-state"><div class="icon">🔧</div><div>Página en construcción</div></div>';
+}
+
+function showLoading() {
+  document.getElementById('content').innerHTML = '<div class="loading-screen"><div class="loader-anchor">⚓</div><div class="loader-text">Cargando...</div></div>';
+}
+function hideLoading() {}
+
+// ─── DASHBOARD ───────────────────────────────────────────────
+function renderDashboard() {
+  google.script.run
+    .withSuccessHandler(data => {
+      if (!data || data.error) { showError(data && data.error); return; }
+      const r = data.resumen;
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="cards-grid">
+          ${statCard('🚢', 'Embarcaciones Activas', r.embarcacionesActivas + '/' + r.totalEmbarcaciones, 'Flota operativa', '')}
+          ${statCard('⚠️', 'Fallas (año actual)', r.totalFallas, 'Registros en curso', 'danger')}
+          ${statCard('📋', 'Órdenes Abiertas', r.otAbiertas, 'De ' + r.totalOTs + ' totales', 'warning')}
+          ${statCard('📜', 'Certs. por Vencer', r.certsCriticos, r.certsVencidos + ' vencidos', r.certsVencidos > 0 ? 'danger' : 'warning')}
+          ${statCard('⛽', 'Combustible (gal)', parseFloat(r.totalCombustible).toLocaleString(), 'S/ ' + parseFloat(r.totalCostoComb).toLocaleString(), 'teal')}
+          ${statCard('✅', 'OTs Cerradas', r.otCerradas, 'Trabajos completados', 'success')}
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">📊 Fallas por Embarcación (Año actual)</span>
+            </div>
+            <div class="section-body">
+              ${renderBarChart(data.fallasPorEmb, 'danger')}
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">📈 Fallas por Mes</span>
+            </div>
+            <div class="section-body">
+              ${renderBarChartArray(data.fallasPorMes, MESES, 'warning')}
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">🚢 Estado de Flota</span>
+            <button class="btn btn-primary btn-sm" onclick="showPage('embarcaciones')">Ver Detalle</button>
+          </div>
+          <div class="section-body">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Embarcación</th><th>Código</th><th>Tipo</th><th>Centro</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <tbody>
+                  ${data.embarcaciones.map(e => `
+                    <tr>
+                      <td><strong>${e.NOMBRE}</strong></td>
+                      <td><code>${e.CODIGO}</code></td>
+                      <td>${e.TIPO}</td>
+                      <td>${e.CENTRO_MANT}</td>
+                      <td><span class="badge ${e.ESTADO === 'ACTIVO' ? 'badge-success' : 'badge-danger'}">${e.ESTADO}</span></td>
+                      <td>
+                        <button class="btn btn-outline btn-sm" onclick="showPage('equipos')">Equipos</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>`;
+    })
+    .withFailureHandler(err => showError(err.message))
+    .getDashboardData();
+}
+
+function statCard(icon, label, value, sub, type) {
+  return `<div class="stat-card ${type}">
+    <div class="stat-icon">${icon}</div>
+    <div class="stat-label">${label}</div>
+    <div class="stat-value">${value}</div>
+    <div class="stat-sub">${sub}</div>
+  </div>`;
+}
+
+function renderBarChart(obj, color) {
+  const keys = Object.keys(obj);
+  if (!keys.length) return '<div class="empty-state" style="padding:20px"><div class="icon">📊</div><div>Sin datos</div></div>';
+  const max = Math.max(...Object.values(obj), 1);
+  const colors = { danger:'#e53935', warning:'#fb8c00', info:'#0288d1', success:'#43a047' };
+  const c = colors[color] || colors.info;
+  return `<div class="chart-bars">${keys.map(k => {
+    const pct = Math.round((obj[k]/max)*180);
+    return `<div class="chart-bar-wrap">
+      <div class="chart-bar-val">${obj[k]}</div>
+      <div class="chart-bar" style="height:${pct}px;background:${c}" title="${k}: ${obj[k]}"></div>
+      <div class="chart-bar-label">${k.length > 8 ? k.substring(0,7)+'…' : k}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderBarChartArray(arr, labels, color) {
+  const max = Math.max(...arr, 1);
+  const colors = { danger:'#e53935', warning:'#fb8c00', info:'#0288d1', success:'#43a047' };
+  const c = colors[color] || colors.info;
+  return `<div class="chart-bars">${arr.map((v, i) => {
+    const pct = Math.round((v/max)*180);
+    return `<div class="chart-bar-wrap">
+      <div class="chart-bar-val">${v||''}</div>
+      <div class="chart-bar" style="height:${Math.max(pct,2)}px;background:${c}" title="${labels[i]}: ${v}"></div>
+      <div class="chart-bar-label">${labels[i]}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// ─── EMBARCACIONES ───────────────────────────────────────────
+function renderEmbarcaciones() {
+  google.script.run
+    .withSuccessHandler(data => {
+      APP.data.embarcaciones = data || [];
+      const content = document.getElementById('content');
+      content.innerHTML = `
+        <div class="page-header">
+          <h2>🚢 Gestión de Embarcaciones</h2>
+          <button class="btn btn-primary" onclick="abrirFormEmbarcacion()">+ Nueva Embarcación</button>
+        </div>
+        <div class="section">
+          <div class="section-body">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Nombre</th><th>Código</th><th>Tipo</th><th>Armador</th><th>Centro</th><th>Eslora (m)</th><th>Potencia (KW)</th><th>Estado</th></tr></thead>
+                <tbody>
+                  ${data.length ? data.map(e => `
+                    <tr>
+                      <td><code>${e.ID}</code></td>
+                      <td><strong>${e.NOMBRE}</strong></td>
+                      <td><span class="badge badge-navy">${e.CODIGO}</span></td>
+                      <td>${e.TIPO}</td>
+                      <td>${e.ARMADOR}</td>
+                      <td>${e.CENTRO_MANT}</td>
+                      <td>${e.ESLORA}</td>
+                      <td>${e.POTENCIA_KW}</td>
+                      <td><span class="badge ${e.ESTADO==='ACTIVO'?'badge-success':'badge-danger'}">${e.ESTADO}</span></td>
+                    </tr>`).join('') : '<tr><td colspan="9"><div class="empty-state">Sin embarcaciones registradas</div></td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>`;
+    })
+    .withFailureHandler(err => showError(err.message))
+    .getEmbarcaciones();
+}
+
+// ─── EQUIPOS ─────────────────────────────────────────────────
+function renderEquipos() {
+  google.script.run
+    .withSuccessHandler(embs => {
+      APP.data.embarcaciones = embs || [];
+      google.script.run
+        .withSuccessHandler(eqs => {
+          APP.data.equipos = eqs || [];
+          google.script.run
+            .withSuccessHandler(sis => {
+              APP.data.sistemas = sis || [];
+              buildEquiposPage();
+            }).getSistemas();
+        }).withFailureHandler(err => showError(err.message)).getEquipos(null);
+    }).getEmbarcaciones();
+}
+
+function buildEquiposPage() {
+  const content = document.getElementById('content');
+  const embOptions = APP.data.embarcaciones.map(e => `<option value="${e.ID}">${e.NOMBRE}</option>`).join('');
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>⚙️ Gestión de Equipos</h2>
+      <button class="btn btn-primary" onclick="abrirFormEquipo()">+ Nuevo Equipo</button>
+    </div>
+    <div class="filter-bar">
+      <select class="form-control" id="filtroEmbEquipo" onchange="filtrarEquipos()">
+        <option value="">Todas las embarcaciones</option>
+        ${embOptions}
+      </select>
+      <select class="form-control" id="filtroSistemaEquipo" onchange="filtrarEquipos()">
+        <option value="">Todos los sistemas</option>
+        ${APP.data.sistemas.map(s => `<option value="${s.ID_SISTEMA}">${s.NOMBRE}</option>`).join('')}
+      </select>
+      <input type="text" class="form-control" id="buscarEquipo" placeholder="🔍 Buscar equipo..." oninput="filtrarEquipos()">
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap" id="tablaEquipos">
+          ${buildTablaEquipos(APP.data.equipos)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildTablaEquipos(data) {
+  if (!data.length) return '<div class="empty-state"><div class="icon">⚙️</div><div>No hay equipos registrados</div></div>';
+  return `<table>
+    <thead><tr><th>ID</th><th>Embarcación</th><th>Sistema</th><th>Nombre</th><th>Tipo Insp.</th><th>Horómetro</th><th>Próx. Mant.</th><th>Estado</th><th>Criticidad</th><th>Acciones</th></tr></thead>
+    <tbody>
+      ${data.map(e => {
+        const horasProx = parseFloat(e.PROX_MANT_HORAS) || 0;
+        const horaAct = parseFloat(e.HOROMETRO_ACTUAL) || 0;
+        const alertaHoras = horasProx > 0 && horaAct >= horasProx * 0.9;
+        return `<tr>
+          <td><code>${e.ID_EQUIPO}</code></td>
+          <td>${e.ID_EMBARCACION}</td>
+          <td>${e.ID_SISTEMA}</td>
+          <td><strong>${e.NOMBRE_EQUIPO}</strong></td>
+          <td><span class="badge badge-info">${e.TIPO_INSPECCION}</span></td>
+          <td>${horaAct.toLocaleString()} h</td>
+          <td class="${alertaHoras ? 'criticidad-high' : ''}">${horasProx > 0 ? horasProx.toLocaleString() + ' h' : '-'}</td>
+          <td><span class="badge ${e.ESTADO==='OPERATIVO'?'badge-success':'badge-danger'}">${e.ESTADO||'OPERATIVO'}</span></td>
+          <td><span class="${criticidadClass(e.CRITICIDAD)}">${e.CRITICIDAD||'-'}</span></td>
+          <td>
+            <button class="btn btn-outline btn-sm" onclick="editarEquipo('${e.ID_EQUIPO}')">✏️</button>
+            <button class="btn btn-primary btn-sm" onclick="crearOTDesdeEquipo('${e.ID_EQUIPO}')">🔧 OT</button>
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function filtrarEquipos() {
+  const emb = document.getElementById('filtroEmbEquipo').value;
+  const sis = document.getElementById('filtroSistemaEquipo').value;
+  const bus = document.getElementById('buscarEquipo').value.toLowerCase();
+  const filtrado = APP.data.equipos.filter(e =>
+    (!emb || e.ID_EMBARCACION === emb) &&
+    (!sis || e.ID_SISTEMA === sis) &&
+    (!bus || e.NOMBRE_EQUIPO.toLowerCase().includes(bus))
+  );
+  document.getElementById('tablaEquipos').innerHTML = buildTablaEquipos(filtrado);
+}
+
+function abrirFormEquipo(datos) {
+  const embs = APP.data.embarcaciones.map(e => `<option value="${e.ID}" ${datos&&datos.ID_EMBARCACION===e.ID?'selected':''}>${e.NOMBRE}</option>`).join('');
+  const sis = APP.data.sistemas.map(s => `<option value="${s.ID_SISTEMA}" ${datos&&datos.ID_SISTEMA===s.ID_SISTEMA?'selected':''}>${s.NOMBRE}</option>`).join('');
+  const tiposInsp = ['IV','IM','PR','CF','MP','MC','SOV','OVT'].map(t => `<option value="${t}" ${datos&&datos.TIPO_INSPECCION===t?'selected':''}>${t}</option>`).join('');
+
+  openModal('⚙️ ' + (datos ? 'Editar' : 'Nuevo') + ' Equipo', `
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Embarcación <span>*</span></label>
+        <select class="form-control" id="eq_emb">${embs}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sistema <span>*</span></label>
+        <select class="form-control" id="eq_sis">${sis}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Código Equipo</label>
+        <input class="form-control" id="eq_codigo" value="${datos?.CODIGO_EQUIPO||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nombre Equipo <span>*</span></label>
+        <input class="form-control" id="eq_nombre" value="${datos?.NOMBRE_EQUIPO||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Marca</label>
+        <input class="form-control" id="eq_marca" value="${datos?.MARCA||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Modelo</label>
+        <input class="form-control" id="eq_modelo" value="${datos?.MODELO||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">N° de Serie</label>
+        <input class="form-control" id="eq_serie" value="${datos?.SERIE||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo de Inspección</label>
+        <select class="form-control" id="eq_tipo_insp">${tiposInsp}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Horómetro Actual (h)</label>
+        <input class="form-control" type="number" id="eq_horom" value="${datos?.HOROMETRO_ACTUAL||0}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Próx. Mant. (h)</label>
+        <input class="form-control" type="number" id="eq_prox" value="${datos?.PROX_MANT_HORAS||0}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Criticidad (1-32)</label>
+        <input class="form-control" type="number" id="eq_crit" min="1" max="32" value="${datos?.CRITICIDAD||1}">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEquipoForm(${datos?`'${datos.ID_EQUIPO}'`:'null'})">💾 Guardar</button>
+    </div>
+  `);
+}
+
+function guardarEquipoForm(id) {
+  const datos = {
+    ID_EQUIPO: id || null,
+    ID_EMBARCACION: document.getElementById('eq_emb').value,
+    ID_SISTEMA: document.getElementById('eq_sis').value,
+    CODIGO_EQUIPO: document.getElementById('eq_codigo').value,
+    NOMBRE_EQUIPO: document.getElementById('eq_nombre').value,
+    MARCA: document.getElementById('eq_marca').value,
+    MODELO: document.getElementById('eq_modelo').value,
+    SERIE: document.getElementById('eq_serie').value,
+    TIPO_INSPECCION: document.getElementById('eq_tipo_insp').value,
+    HOROMETRO_ACTUAL: parseFloat(document.getElementById('eq_horom').value) || 0,
+    PROX_MANT_HORAS: parseFloat(document.getElementById('eq_prox').value) || 0,
+    CRITICIDAD: parseInt(document.getElementById('eq_crit').value) || 1
+  };
+  if (!datos.ID_EMBARCACION || !datos.NOMBRE_EQUIPO) { showToast('Completa los campos obligatorios', 'error'); return; }
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderEquipos(); }
+      else showToast(res.error || 'Error al guardar', 'error');
+    }).guardarEquipo(datos);
+}
+
+function editarEquipo(id) {
+  const eq = APP.data.equipos.find(e => e.ID_EQUIPO === id);
+  if (eq) abrirFormEquipo(eq);
+}
+
+// ─── ÓRDENES DE TRABAJO ──────────────────────────────────────
+function renderOrdenes() {
+  google.script.run
+    .withSuccessHandler(embs => {
+      APP.data.embarcaciones = embs || [];
+      google.script.run
+        .withSuccessHandler(ots => {
+          APP.data.ordenes = ots || [];
+          buildOrdenesPage();
+        }).getOrdenesTrabajoResumen();
+    }).getEmbarcaciones();
+}
+
+function buildOrdenesPage() {
+  const content = document.getElementById('content');
+  const abiertasCount = APP.data.ordenes.filter(o => o.ESTADO === 'ABIERTA').length;
+  const cerradasCount = APP.data.ordenes.filter(o => o.ESTADO === 'CERRADA').length;
+
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>📋 Órdenes de Trabajo</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-warning" onclick="abrirFormOT('CORRECTIVO')">⚡ OT Correctiva</button>
+        <button class="btn btn-primary" onclick="abrirFormOT('PREVENTIVO')">📅 OT Preventiva</button>
+      </div>
+    </div>
+    <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
+      ${statCard('📋','Total OTs', APP.data.ordenes.length, 'Historial completo', '')}
+      ${statCard('🔓','Abiertas', abiertasCount, 'En proceso', 'warning')}
+      ${statCard('✅','Cerradas', cerradasCount, 'Completadas', 'success')}
+      ${statCard('🚨','Vencidas', APP.data.ordenes.filter(o=>o.ESTADO==='ABIERTA'&&diasAbiertas(o.FECHA_REGISTRO)>30).length, 'Más de 30 días', 'danger')}
+    </div>
+    <div class="filter-bar">
+      <select class="form-control" id="filtroOTEstado" onchange="filtrarOrdenes()">
+        <option value="">Todos los estados</option>
+        <option value="ABIERTA">ABIERTA</option>
+        <option value="EN_PROCESO">EN PROCESO</option>
+        <option value="CERRADA">CERRADA</option>
+      </select>
+      <select class="form-control" id="filtroOTTipo" onchange="filtrarOrdenes()">
+        <option value="">Todos los tipos</option>
+        <option value="PREVENTIVO">PREVENTIVO</option>
+        <option value="CORRECTIVO">CORRECTIVO</option>
+      </select>
+      <input type="text" class="form-control" id="buscarOT" placeholder="🔍 Buscar OT o embarcación..." oninput="filtrarOrdenes()">
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap" id="tablaOTs">
+          ${buildTablaOTs(APP.data.ordenes)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function diasAbiertas(fecha) {
+  if (!fecha) return 0;
+  return Math.ceil((new Date() - new Date(fecha)) / (1000*60*60*24));
+}
+
+function buildTablaOTs(data) {
+  if (!data.length) return '<div class="empty-state"><div class="icon">📋</div><div>No hay órdenes registradas</div></div>';
+  return `<table>
+    <thead><tr><th>N° OT</th><th>Tipo</th><th>Embarcación</th><th>Sistema/Equipo</th><th>Descripción</th><th>Prioridad</th><th>Fecha</th><th>Estado</th><th>Días</th><th>Acciones</th></tr></thead>
+    <tbody>
+      ${data.map(o => {
+        const dias = diasAbiertas(o.FECHA_REGISTRO);
+        return `<tr>
+          <td><code>${o.NUMERO_OT||o.ID_OT}</code></td>
+          <td><span class="badge ${o.TIPO==='PREVENTIVO'?'badge-info':'badge-warning'}">${o.TIPO}</span></td>
+          <td>${o.EMBARCACION}</td>
+          <td>${o.SISTEMA}<br><small>${o.EQUIPO||''}</small></td>
+          <td>${(o.DESCRIPCION||'').substring(0,50)}${o.DESCRIPCION&&o.DESCRIPCION.length>50?'…':''}</td>
+          <td><span class="badge ${o.PRIORIDAD==='ALTA'?'badge-danger':o.PRIORIDAD==='MEDIA'?'badge-warning':'badge-gray'}">${o.PRIORIDAD}</span></td>
+          <td>${o.FECHA_REGISTRO}</td>
+          <td><span class="badge ${o.ESTADO==='CERRADA'?'badge-success':o.ESTADO==='EN_PROCESO'?'badge-info':'badge-warning'}">${o.ESTADO}</span></td>
+          <td class="${dias>30&&o.ESTADO!=='CERRADA'?'criticidad-high':''}">${dias}</td>
+          <td>
+            ${o.ESTADO!=='CERRADA'?`<button class="btn btn-success btn-sm" onclick="cerrarOT('${o.ID_OT}')">✅ Cerrar</button>`:''}
+            <button class="btn btn-outline btn-sm" onclick="verOT('${o.ID_OT}')">👁️</button>
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function filtrarOrdenes() {
+  const estado = document.getElementById('filtroOTEstado').value;
+  const tipo = document.getElementById('filtroOTTipo').value;
+  const bus = document.getElementById('buscarOT').value.toLowerCase();
+  const filtrado = APP.data.ordenes.filter(o =>
+    (!estado || o.ESTADO === estado) &&
+    (!tipo || o.TIPO === tipo) &&
+    (!bus || (o.NUMERO_OT||'').toLowerCase().includes(bus) || (o.EMBARCACION||'').toLowerCase().includes(bus))
+  );
+  document.getElementById('tablaOTs').innerHTML = buildTablaOTs(filtrado);
+}
+
+function abrirFormOT(tipo, equipoDatos) {
+  const embs = APP.data.embarcaciones.map(e => `<option value="${e.ID}" data-nombre="${e.NOMBRE}">${e.NOMBRE}</option>`).join('');
+  const sis = APP.data.sistemas.map(s => `<option value="${s.ID_SISTEMA}">${s.NOMBRE}</option>`).join('');
+
+  openModal(`📋 Nueva Orden de Trabajo - ${tipo}`, `
+    <div class="form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Tipo de OT</label>
+        <input class="form-control" value="${tipo}" disabled>
+        <input type="hidden" id="ot_tipo" value="${tipo}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prioridad <span>*</span></label>
+        <select class="form-control" id="ot_prioridad">
+          <option>NORMAL</option><option>MEDIA</option><option>ALTA</option><option>CRITICA</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Embarcación <span>*</span></label>
+        <select class="form-control" id="ot_emb" onchange="cargarEquiposOT()">
+          <option value="">Seleccionar...</option>${embs}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sistema <span>*</span></label>
+        <select class="form-control" id="ot_sis">
+          <option value="">Seleccionar...</option>${sis}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Equipo</label>
+        <select class="form-control" id="ot_equipo">
+          <option value="">Seleccionar embarcación primero...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Técnico Responsable</label>
+        <input class="form-control" id="ot_tecnico" placeholder="Nombre del técnico">
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Descripción del Trabajo <span>*</span></label>
+        <textarea class="form-control" id="ot_desc" rows="3" placeholder="Describe el trabajo a realizar..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Acción</label>
+        <select class="form-control" id="ot_accion">
+          <option value="IV">IV - Inspección Visual</option>
+          <option value="IM">IM - Inspección Manual</option>
+          <option value="PR">PR - Pruebas</option>
+          <option value="CF">CF - Cambio de Filtros</option>
+          <option value="MP" ${tipo==='PREVENTIVO'?'selected':''}>MP - Mant. Preventivo</option>
+          <option value="MC" ${tipo==='CORRECTIVO'?'selected':''}>MC - Mant. Correctivo</option>
+          <option value="SOV">SOV - Semi Overhaul</option>
+          <option value="OVT">OVT - Over Haul Total</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fecha Programada</label>
+        <input class="form-control" type="date" id="ot_fecha_prog">
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Observaciones</label>
+        <textarea class="form-control" id="ot_obs" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarOTForm()">💾 Crear OT</button>
+    </div>
+  `);
+}
+
+function cargarEquiposOT() {
+  const embId = document.getElementById('ot_emb').value;
+  const select = document.getElementById('ot_equipo');
+  const equipos = APP.data.equipos.filter(e => e.ID_EMBARCACION === embId);
+  select.innerHTML = '<option value="">Sin equipo específico</option>' +
+    equipos.map(e => `<option value="${e.ID_EQUIPO}" data-nombre="${e.NOMBRE_EQUIPO}">${e.NOMBRE_EQUIPO}</option>`).join('');
+}
+
+function guardarOTForm() {
+  const embEl = document.getElementById('ot_emb');
+  const sisEl = document.getElementById('ot_sis');
+  const eqEl = document.getElementById('ot_equipo');
+  const desc = document.getElementById('ot_desc').value;
+  if (!embEl.value || !sisEl.value || !desc) { showToast('Completa los campos obligatorios', 'error'); return; }
+
+  const datos = {
+    TIPO: document.getElementById('ot_tipo').value,
+    ID_EMBARCACION: embEl.value,
+    EMBARCACION: embEl.options[embEl.selectedIndex].text,
+    ID_SISTEMA: sisEl.value,
+    SISTEMA: sisEl.options[sisEl.selectedIndex].text,
+    ID_EQUIPO: eqEl.value || '',
+    EQUIPO: eqEl.value ? eqEl.options[eqEl.selectedIndex].text : '',
+    DESCRIPCION: desc,
+    ACCION: document.getElementById('ot_accion').value,
+    PRIORIDAD: document.getElementById('ot_prioridad').value,
+    TECNICO: document.getElementById('ot_tecnico').value,
+    FECHA_PROGRAMADA: document.getElementById('ot_fecha_prog').value,
+    OBSERVACIONES: document.getElementById('ot_obs').value
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderOrdenes(); }
+      else showToast(res.error || 'Error al crear OT', 'error');
+    }).crearOrdenTrabajo(datos);
+}
+
+function cerrarOT(id) {
+  if (!confirm('¿Confirmar cierre de la Orden de Trabajo?')) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { showToast('OT cerrada', 'success'); renderOrdenes(); }
+      else showToast(res.error, 'error');
+    }).actualizarOrdenTrabajo({ ID_OT: id, ESTADO: 'CERRADA' });
+}
+
+function crearOTDesdeEquipo(equipoId) {
+  const eq = APP.data.equipos.find(e => e.ID_EQUIPO === equipoId);
+  if (!eq) return;
+  showPage('ordenes');
+  setTimeout(() => abrirFormOT('PREVENTIVO', eq), 500);
+}
+
+// ─── REGISTRO DE FALLAS ──────────────────────────────────────
+function renderFallas() {
+  google.script.run
+    .withSuccessHandler(embs => {
+      APP.data.embarcaciones = embs || [];
+      google.script.run
+        .withSuccessHandler(fallas => {
+          APP.data.fallas = fallas || [];
+          buildFallasPage();
+        }).getRegistroFallas(null);
+    }).getEmbarcaciones();
+}
+
+function buildFallasPage() {
+  const content = document.getElementById('content');
+  const embOptions = APP.data.embarcaciones.map(e => `<option value="${e.NOMBRE}">${e.NOMBRE}</option>`).join('');
+
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>⚠️ Registro de Fallas</h2>
+      <button class="btn btn-danger" onclick="abrirFormFalla()">⚡ Reportar Falla</button>
+    </div>
+    <div class="filter-bar">
+      <select class="form-control" id="filtroFallaEmb" onchange="filtrarFallas()">
+        <option value="">Todas las embarcaciones</option>${embOptions}
+      </select>
+      <select class="form-control" id="filtroFallaAno" onchange="filtrarFallas()">
+        <option value="">Todos los años</option>
+        ${[2025,2024,2023,2022].map(a => `<option value="${a}">${a}</option>`).join('')}
+      </select>
+      <input type="text" class="form-control" id="buscarFalla" placeholder="🔍 Buscar..." oninput="filtrarFallas()">
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap" id="tablaFallas">
+          ${buildTablaFallas(APP.data.fallas)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildTablaFallas(data) {
+  if (!data.length) return '<div class="empty-state"><div class="icon">⚠️</div><div>No hay fallas registradas</div></div>';
+  return `<table>
+    <thead><tr><th>Código</th><th>Embarcación</th><th>Equipo</th><th>Sistema</th><th>Descripción</th><th>Fecha</th><th>Días Falla</th><th>Reparado</th><th>Acciones</th></tr></thead>
+    <tbody>
+      ${data.slice().reverse().map(f => `
+        <tr>
+          <td><code>${f.CODIGO_FALLA||f.ID_FALLA}</code></td>
+          <td>${f.UBICACION_TECNICA}</td>
+          <td>${f.EQUIPO}</td>
+          <td>${f.SISTEMA}</td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.DESCRIPCION_FALLA}">${f.DESCRIPCION_FALLA}</td>
+          <td>${f.FECHA_REGISTRO}</td>
+          <td><span class="${parseInt(f.TIEMPO_FALLA_DIAS)>30?'criticidad-high':parseInt(f.TIEMPO_FALLA_DIAS)>7?'criticidad-med':''}">${f.TIEMPO_FALLA_DIAS} días</span></td>
+          <td><span class="badge ${f.EQUIPO_REPARADO==='OK'?'badge-success':'badge-danger'}">${f.EQUIPO_REPARADO||'NO'}</span></td>
+          <td><button class="btn btn-outline btn-sm" onclick="verFalla('${f.ID_FALLA}')">👁️</button></td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function filtrarFallas() {
+  const emb = document.getElementById('filtroFallaEmb').value;
+  const ano = document.getElementById('filtroFallaAno').value;
+  const bus = document.getElementById('buscarFalla').value.toLowerCase();
+  const filtrado = APP.data.fallas.filter(f =>
+    (!emb || f.UBICACION_TECNICA === emb) &&
+    (!ano || String(f.ANO) === ano) &&
+    (!bus || (f.DESCRIPCION_FALLA||'').toLowerCase().includes(bus) || (f.EQUIPO||'').toLowerCase().includes(bus))
+  );
+  document.getElementById('tablaFallas').innerHTML = buildTablaFallas(filtrado);
+}
+
+function abrirFormFalla() {
+  const embs = APP.data.embarcaciones.map(e => `<option value="${e.NOMBRE}" data-id="${e.ID}">${e.NOMBRE}</option>`).join('');
+  const sis = APP.data.sistemas.map(s => `<option value="${s.NOMBRE}">${s.NOMBRE}</option>`).join('');
+
+  openModal('⚡ Reportar Nueva Falla', `
+    <div class="form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Embarcación (Ubicación Técnica) <span>*</span></label>
+        <select class="form-control" id="fl_emb" onchange="cargarEquiposFalla()">${embs}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sistema <span>*</span></label>
+        <select class="form-control" id="fl_sis">${sis}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Equipo <span>*</span></label>
+        <select class="form-control" id="fl_equipo">
+          <option value="">Seleccionar embarcación primero...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Severidad</label>
+        <select class="form-control" id="fl_sev">
+          <option>BAJA</option><option selected>MEDIA</option><option>ALTA</option><option>CRITICA</option>
+        </select>
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Descripción de la Falla <span>*</span></label>
+        <textarea class="form-control" id="fl_desc" rows="3" placeholder="Describe la falla detalladamente..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Causa Raíz</label>
+        <input class="form-control" id="fl_causa" placeholder="Causa identificada...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tiempo de Falla (días)</label>
+        <input class="form-control" type="number" id="fl_dias" value="1" min="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Horas de Operación</label>
+        <input class="form-control" type="number" id="fl_horas" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Plan de Mantenimiento</label>
+        <select class="form-control" id="fl_plan">
+          <option value="Correctivo" selected>Correctivo</option>
+          <option value="Preventivo">Preventivo</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Costo Estimado (S/)</label>
+        <input class="form-control" type="number" id="fl_costo" value="0">
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Acción Tomada</label>
+        <textarea class="form-control" id="fl_accion" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="guardarFallaForm()">⚡ Reportar Falla</button>
+    </div>
+  `);
+}
+
+function cargarEquiposFalla() {
+  const embNombre = document.getElementById('fl_emb').value;
+  const emb = APP.data.embarcaciones.find(e => e.NOMBRE === embNombre);
+  const equipos = emb ? APP.data.equipos.filter(eq => eq.ID_EMBARCACION === emb.ID) : [];
+  const select = document.getElementById('fl_equipo');
+  select.innerHTML = '<option value="">Seleccionar equipo...</option>' +
+    equipos.map(e => `<option value="${e.NOMBRE_EQUIPO}">${e.NOMBRE_EQUIPO}</option>`).join('');
+}
+
+function guardarFallaForm() {
+  const emb = document.getElementById('fl_emb').value;
+  const sis = document.getElementById('fl_sis').value;
+  const desc = document.getElementById('fl_desc').value;
+  if (!emb || !sis || !desc) { showToast('Completa los campos obligatorios', 'error'); return; }
+
+  const datos = {
+    UBICACION_TECNICA: emb,
+    SISTEMA: sis,
+    EQUIPO: document.getElementById('fl_equipo').value,
+    DESCRIPCION_FALLA: desc,
+    SEVERIDAD: document.getElementById('fl_sev').value,
+    CAUSA_RAIZ: document.getElementById('fl_causa').value,
+    TIEMPO_FALLA_DIAS: document.getElementById('fl_dias').value,
+    HORAS_OP: document.getElementById('fl_horas').value,
+    PLAN_MANT: document.getElementById('fl_plan').value,
+    COSTO_ESTIMADO: document.getElementById('fl_costo').value,
+    ACCION_TOMADA: document.getElementById('fl_accion').value
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderFallas(); }
+      else showToast(res.error, 'error');
+    }).registrarFalla(datos);
+}
+
+// ─── PARÁMETROS OPERATIVOS ───────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  MÓDULO PARÁMETROS — Formatos G-125 / G-126 / G-127  v3.8
+//  Tabs: G-125 Seguimiento | G-126 Actividades | G-127 Parámetros
+//  NO modifica ninguna función existente anterior.
+// ════════════════════════════════════════════════════════════
+
+// ── Equipos por embarcación para formularios (formato rápido) ─
+const EQUIPOS_MANT = {
+  'GUANAY':      ['M/P ER','M/P BR','GEN ER','GEN BR','GEN Puerto'],
+  'PELICANO':    ['M/P ER','M/P BR','GEN ER','GEN BR','GEN Puerto'],
+  'DELFIN 11':   ['M/P','GEN Puerto'],
+  'DELFIN 12':   ['M/P','GEN Puerto'],
+  'ISLA CHINCHA':['GEN ER','GEN BR'],
+  'ALCATRAZ':    ['M/P','GEN Puerto'],
+  'CISTERNA 1':  ['M/P','GEN Puerto'],
+  'PANGA':       ['M/P']
+};
+// G125_MATRIX se define dentro de buildG125Form — contiene la estructura completa por embarcación
+
+const TIPOS_MANT = [
+  'Mantenimiento Preventivo T1 (250 hrs)',
+  'Mantenimiento Preventivo T2 (1000 hrs)',
+  'Mantenimiento Preventivo T3 (5000 hrs)',
+  'Inspección Visual',
+  'Inspección Manual',
+  'Cambio de Filtros',
+  'Mantenimiento Correctivo',
+  'Semi Overhaul',
+  'Overhaul Total'
+];
+
+// Estado del módulo Parámetros
+var PM_STATE = { tab: 'g127', datos: null };
+
+// ════════════════════════════════════════════════════════════
+//  PARÁMETROS: G-125 / G-126 / G-127
+//  Carga instantánea — sin llamadas al servidor al abrir
+// ════════════════════════════════════════════════════════════
+function renderParametros() {
+  var content = document.getElementById('content');
+  if (!content) return;
+
+  var tab = PM_STATE.tab;
+  var tabs = [
+    { id:'g127', icon:'📡', label:'G-127 Parámetros' },
+    { id:'g125', icon:'📋', label:'G-125 Seguimiento' },
+    { id:'g126', icon:'🔧', label:'G-126 Actividades' }
+  ];
+
+  var btnHtml = '';
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    var active = (tab === t.id);
+    var bg  = active ? 'white' : 'transparent';
+    var cl  = active ? '#1a3a5c' : 'rgba(255,255,255,.85)';
+    var fw  = active ? '700' : '400';
+    btnHtml += '<button id="pmtab-' + t.id + '"'
+      + ' onclick="pmSwitch(\'' + t.id + '\')"'
+      + ' style="padding:8px 18px;border:none;border-radius:8px;cursor:pointer;'
+      + 'background:' + bg + ';color:' + cl + ';font-weight:' + fw + ';font-size:13px">'
+      + t.icon + ' ' + t.label
+      + '</button>';
+  }
+
+  content.innerHTML =
+    '<div style="background:linear-gradient(135deg,#1a3a5c,#1565c0);color:white;'
+    + 'padding:18px 24px;border-radius:14px;margin-bottom:16px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'
+    + '<div><h2 style="margin:0;font-size:20px">📋 Parámetros y Mantenimiento</h2>'
+    + '<p style="margin:3px 0 0;opacity:.75;font-size:12px">Formatos G-125 · G-126 · G-127</p></div>'
+    + '<div style="display:flex;gap:4px;background:rgba(255,255,255,.1);border-radius:10px;padding:4px">'
+    + btnHtml
+    + '</div></div></div>'
+    + '<div id="pm-content"></div>';
+
+  pmSwitch(tab);
+}
+
+function pmSwitch(tab) {
+  PM_STATE.tab = tab;
+  var tabs = ['g125','g126','g127'];
+  for (var i = 0; i < tabs.length; i++) {
+    var btn = document.getElementById('pmtab-' + tabs[i]);
+    if (!btn) continue;
+    var active = (tabs[i] === tab);
+    btn.style.background = active ? 'white' : 'transparent';
+    btn.style.color      = active ? '#1a3a5c' : 'rgba(255,255,255,.85)';
+    btn.style.fontWeight = active ? '700' : '400';
+  }
+  var c = document.getElementById('pm-content');
+  if (!c) return;
+  if (tab === 'g125') { c.innerHTML = buildG125Form(); }
+  else if (tab === 'g126') { c.innerHTML = buildG126Form(); }
+  else { pmBuildG127(c); }
+}
+
+// ════════════════════════════════════════════════════════════
+//  G-127: PARÁMETROS OPERATIVOS (versión funcional)
+// ════════════════════════════════════════════════════════════
+function pmBuildG127(container) {
+  var embOpts = '<option value="">Seleccionar...</option>';
+  var embs = APP.data.embarcaciones || [];
+  for (var i = 0; i < embs.length; i++) {
+    embOpts += '<option value="' + embs[i].ID + '">' + embs[i].NOMBRE + '</option>';
+  }
+
+  container.innerHTML =
+    '<div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">'
+    + '<div style="background:#6a1b9a;color:white;padding:12px 20px;display:flex;justify-content:space-between;align-items:center">'
+    + '<div><div style="font-size:9px;opacity:.7;text-transform:uppercase">Formato</div>'
+    + '<div style="font-size:22px;font-weight:900">G-127</div></div>'
+    + '<div style="font-size:12px;font-weight:600">Parámetros Operativos Diarios</div>'
+    + '</div>'
+    + '<div class="section-body">'
+    + '<div class="form-grid-3">'
+    + '<div class="form-group"><label class="form-label">Embarcación *</label>'
+    + '<select class="form-control" id="pm_emb" onchange="cargarEquiposParam()">'
+    + embOpts + '</select></div>'
+    + '<div class="form-group"><label class="form-label">Equipo *</label>'
+    + '<select class="form-control" id="pm_equipo"><option>Seleccionar embarcación...</option></select></div>'
+    + '<div class="form-group"><label class="form-label">Código</label>'
+    + '<input class="form-control" id="pm_codigo" placeholder="G-127"></div>'
+    + '<div class="form-group"><label class="form-label">Insp. Visual</label>'
+    + '<select class="form-control" id="pm_insp_vis"><option value="OK">OK</option><option value="NO OK">NO OK</option><option value="N/A">N/A</option></select></div>'
+    + '<div class="form-group"><label class="form-label">Horas Operación</label>'
+    + '<input class="form-control" type="number" id="pm_horas_op" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Horómetro Actual</label>'
+    + '<input class="form-control" type="number" id="pm_horom" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Horóm. Último Mant.</label>'
+    + '<input class="form-control" type="number" id="pm_horom_ult" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Horóm. Próx. Mant.</label>'
+    + '<input class="form-control" type="number" id="pm_horom_prox" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Humo</label>'
+    + '<select class="form-control" id="pm_humo"><option value="NOR">NOR-Normal</option><option value="N">N-Negro</option><option value="B">B-Blanco</option><option value="A">A-Azul</option></select></div>'
+    + '<div class="form-group"><label class="form-label">RPM</label>'
+    + '<input class="form-control" type="number" id="pm_rpm" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Temp. Agua (°C)</label>'
+    + '<input class="form-control" type="number" id="pm_temp" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">P° Aceite (Psi)</label>'
+    + '<input class="form-control" type="number" id="pm_plo" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">P° Combustible (Psi)</label>'
+    + '<input class="form-control" type="number" id="pm_pfo" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Voltaje (V)</label>'
+    + '<input class="form-control" type="number" id="pm_volt" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Consumo Petróleo (gal)</label>'
+    + '<input class="form-control" type="number" id="pm_comb" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Millas Recorridas</label>'
+    + '<input class="form-control" type="number" id="pm_millas" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Hora Inicial</label>'
+    + '<input class="form-control" type="number" id="pm_hora_ini" value="0"></div>'
+    + '<div class="form-group"><label class="form-label">Hora Final</label>'
+    + '<input class="form-control" type="number" id="pm_hora_fin" value="0"></div>'
+    + '<div class="form-group form-full"><label class="form-label">Observaciones</label>'
+    + '<textarea class="form-control" id="pm_obs" rows="2"></textarea></div>'
+    + '</div>'
+    + '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">'
+    + '<button class="btn btn-outline" onclick="renderParametros()">🔄 Limpiar</button>'
+    + '<button class="btn btn-primary" style="background:#6a1b9a" onclick="guardarParametrosForm()">💾 Registrar G-127</button>'
+    + '</div></div></div>';
+}
+
+function cargarEquiposParam() {
+  var embId = document.getElementById('pm_emb').value;
+  var equipos = (APP.data.equipos || []).filter(function(e){ return e.ID_EMBARCACION === embId; });
+  var sel = document.getElementById('pm_equipo');
+  if (!sel) return;
+  var html = '<option value="">Seleccionar equipo...</option>';
+  for (var i = 0; i < equipos.length; i++) {
+    html += '<option value="' + equipos[i].ID_EQUIPO + '">' + equipos[i].NOMBRE_EQUIPO + '</option>';
+  }
+  sel.innerHTML = html;
+}
+
+function guardarParametrosForm() {
+  var embEl = document.getElementById('pm_emb');
+  var eqEl  = document.getElementById('pm_equipo');
+  if (!embEl || !embEl.value) { showToast('Selecciona una embarcación', 'error'); return; }
+  var emb = (APP.data.embarcaciones || []).find(function(e){ return e.ID === embEl.value; });
+  var datos = {
+    ID_EMBARCACION:     embEl.value,
+    EMBARCACION:        emb ? emb.NOMBRE : embEl.options[embEl.selectedIndex].text,
+    ID_EQUIPO:          eqEl ? eqEl.value : '',
+    EQUIPO:             eqEl && eqEl.value ? eqEl.options[eqEl.selectedIndex].text : '',
+    CODIGO_GENERAL:     document.getElementById('pm_codigo').value,
+    INSPECCION_VISUAL:  document.getElementById('pm_insp_vis').value,
+    HORAS_OP:           document.getElementById('pm_horas_op').value,
+    HOROMETRO_ACTUAL:   document.getElementById('pm_horom').value,
+    HOROMETRO_ULT_MANT: document.getElementById('pm_horom_ult').value,
+    HOROMETRO_PROX_MANT:document.getElementById('pm_horom_prox').value,
+    HUMO:               document.getElementById('pm_humo').value,
+    RPM:                document.getElementById('pm_rpm').value,
+    TEMP_AGUA:          document.getElementById('pm_temp').value,
+    PRESION_LO:         document.getElementById('pm_plo').value,
+    PRESION_FO:         document.getElementById('pm_pfo').value,
+    VOLTAJE:            document.getElementById('pm_volt').value,
+    CONSUMO_PETROLEO:   document.getElementById('pm_comb').value,
+    MILLAS_RECORRIDAS:  document.getElementById('pm_millas').value,
+    HOR_INICIAL:        document.getElementById('pm_hora_ini').value,
+    HOR_FINAL:          document.getElementById('pm_hora_fin').value,
+    OBSERVACION:        document.getElementById('pm_obs').value
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast(res.mensaje, 'success'); renderParametros(); }
+      else showToast((res && res.error) || 'Error al guardar', 'error');
+    })
+    .withFailureHandler(function(err) { showToast(err.message, 'error'); })
+    .registrarParametros(datos);
+}
+
+// ════════════════════════════════════════════════════════════
+//  G-125: SEGUIMIENTO SEMANAL — ACORDEÓN POR SISTEMA
+// ════════════════════════════════════════════════════════════
+
+const G125_MATRIX = {"GUANAY": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Motor Principal ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Sistema de Fondeo", "equipo": "Unidad Hidráulica", "componentes": [{"nombre": "Aceite Hidráulico", "horas": 500}, {"nombre": "Filtro Hidráulico", "horas": 500}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Mangueras", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}, {"sistema": "Sistema de Gobierno", "equipo": "Sistema de Timón", "componentes": [{"nombre": "Aceite hidráulico", "horas": 500}, {"nombre": "Mangueras hidráulicas", "horas": 1000}, {"nombre": "Cilindro de timón — sello", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}, {"nombre": "Válvulas de fondo", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}], "PELICANO": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Motor Principal ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro Separador de Agua", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Válvulas Admisión y Escape", "horas": 1000}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Planta Propulsora", "equipo": "Unidad Hidráulica (Timón)", "componentes": [{"nombre": "Aceite Hidráulico", "horas": 500}, {"nombre": "Filtro Hidráulico", "horas": 500}, {"nombre": "Mangueras", "horas": 1000}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Planta Ósmosis", "componentes": [{"nombre": "Filtro prefiltro 5 micras", "horas": 250}, {"nombre": "Membrana", "horas": 2500}, {"nombre": "Bomba alta presión — sello", "horas": 1000}]}, {"sistema": "Equipos Auxiliares", "equipo": "Electrobomba Contraincendio", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}, {"sistema": "Sistema de Gobierno", "equipo": "Sistema de Timón", "componentes": [{"nombre": "Aceite hidráulico", "horas": 500}, {"nombre": "Mangueras hidráulicas", "horas": 1000}, {"nombre": "Cilindro de timón — sello", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}, {"nombre": "Válvulas de fondo", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Sello mecánico", "horas": 500}]}], "ISLA CHINCHA": [{"sistema": "Sistema de Grúa", "equipo": "Motor Hidráulico 1", "componentes": [{"nombre": "Rodamientos", "horas": 20}, {"nombre": "Aceite-UH", "horas": 500}]}, {"sistema": "Sistema de Grúa", "equipo": "Motor Eléctrico 1", "componentes": [{"nombre": "Rodamientos", "horas": 20}, {"nombre": "Ventiladores", "horas": 20}, {"nombre": "Aceite-UH", "horas": 20}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Fondeo", "equipo": "Winche de Estribor", "componentes": [{"nombre": "Rodamientos", "horas": 50}, {"nombre": "Aceite", "horas": 50}]}, {"sistema": "Sistema de Fondeo", "equipo": "Motor Eléctrico Winche", "componentes": [{"nombre": "Rodamientos", "horas": 50}, {"nombre": "Ventiladores", "horas": 50}, {"nombre": "Aceite-UH", "horas": 20}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno BR", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno ER", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}, {"nombre": "Ventiladores", "horas": 500}, {"nombre": "Rebobinado", "horas": 2500}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}, {"sistema": "Sistema de Achique", "equipo": "Electrobomba de Achique", "componentes": [{"nombre": "Rodamientos", "horas": 500}, {"nombre": "Impeller", "horas": 500}]}], "DELFIN 11": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "DELFIN 12": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Pernos de Catódicos", "horas": 100}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}, {"nombre": "Rodamientos", "horas": 2500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "ALCATRAZ": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}, {"nombre": "Mangueras", "horas": 500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}, {"nombre": "Rodamientos", "horas": 1000}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "CISTERNA 1": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Filtro de Petróleo", "horas": 250}, {"nombre": "Filtro de aire", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Inyectores", "horas": 1000}, {"nombre": "Impeller", "horas": 500}]}, {"sistema": "Sistema de Energía", "equipo": "Grupo Electrógeno Puerto", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite", "horas": 250}]}, {"sistema": "Cubierta y Casco", "equipo": "Cubierta Principal", "componentes": [{"nombre": "Pintura casco", "horas": 8760}, {"nombre": "Ánodos de zinc", "horas": 2500}]}], "PANGA": [{"sistema": "Planta Propulsora", "equipo": "Motor Principal", "componentes": [{"nombre": "Filtro de aceite", "horas": 250}, {"nombre": "Aceite 15W40", "horas": 250}, {"nombre": "Bujías / Inyectores", "horas": 500}, {"nombre": "Impeller", "horas": 250}]}]};
+
+const G125_SYS_COLORS = {
+  'Planta Propulsora':   {bg:'#e3f2fd',hdr:'#1565c0',icon:'⚙️'},
+  'Sistema de Energía':  {bg:'#fff8e1',hdr:'#f57f17',icon:'⚡'},
+  'Sistema de Grúa':     {bg:'#f3e5f5',hdr:'#6a1b9a',icon:'🏗️'},
+  'Sistema de Fondeo':   {bg:'#e8f5e9',hdr:'#2e7d32',icon:'⚓'},
+  'Equipos Auxiliares':  {bg:'#fce4ec',hdr:'#c62828',icon:'🔧'},
+  'Sistema de Gobierno': {bg:'#e0f7fa',hdr:'#00695c',icon:'🧭'},
+  'Cubierta y Casco':    {bg:'#f9fbe7',hdr:'#558b2f',icon:'🛳️'},
+  'Sistema de Achique':  {bg:'#ede7f6',hdr:'#4527a0',icon:'💧'}
+};
+
+function buildG125Form() {
+  var hoy  = new Date().toISOString().split('T')[0];
+  var embs = Object.keys(G125_MATRIX);
+  var opts = '<option value="">— Seleccionar —</option>';
+  for (var i = 0; i < embs.length; i++) {
+    opts += '<option>' + embs[i] + '</option>';
+  }
+
+  return (
+    '<div style="background:linear-gradient(135deg,#1565c0,#0d47a1);color:white;border-radius:14px 14px 0 0;padding:16px 22px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'
+    + '<div><div style="font-size:9px;opacity:.65;letter-spacing:2px;text-transform:uppercase">Formato</div>'
+    + '<div style="font-size:24px;font-weight:900">G-125</div>'
+    + '<div style="font-size:11px;opacity:.8">Seguimiento Semanal — Plan de Mantenimiento</div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">'
+    + '<div><div style="font-size:9px;opacity:.65;margin-bottom:3px;text-transform:uppercase">Embarcación *</div>'
+    + '<select id="g125emb" onchange="g125Load()" style="padding:8px 12px;border-radius:8px;border:none;font-size:13px;font-weight:700;color:#1a3a5c;min-width:160px">'
+    + opts + '</select></div>'
+    + '<div><div style="font-size:9px;opacity:.65;margin-bottom:3px;text-transform:uppercase">Responsable *</div>'
+    + '<input id="g125resp" placeholder="Nombre del técnico" style="padding:8px 12px;border-radius:8px;border:none;font-size:13px;color:#1a3a5c;min-width:150px"></div>'
+    + '<div><div style="font-size:9px;opacity:.65;margin-bottom:3px;text-transform:uppercase">Fecha *</div>'
+    + '<input type="date" id="g125fecha" value="' + hoy + '" style="padding:8px 12px;border-radius:8px;border:none;font-size:13px;color:#1a3a5c"></div>'
+    + '<button onclick="g125Save()" style="padding:9px 20px;background:#f59e0b;color:#1a1a1a;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;align-self:flex-end">💾 Guardar</button>'
+    + '</div></div></div>'
+    + '<div style="background:#e8f0fe;padding:7px 22px;font-size:11px;color:#1565c0;border-left:4px solid #1565c0">'
+    + '📌 Selecciona la embarcación → abre el sistema → marca estado de cada componente → guarda</div>'
+    + '<div id="g125body" style="background:#f5f7fa;padding:10px;border-radius:0 0 14px 14px;min-height:100px">'
+    + '<div style="text-align:center;padding:40px;color:#aaa"><div style="font-size:36px">🚢</div>'
+    + '<div style="font-size:14px;font-weight:600;margin-top:8px">Selecciona la embarcación</div></div></div>'
+    + '<div id="g125pie" style="display:none;background:white;border-radius:12px;margin-top:10px;padding:14px 18px;box-shadow:0 2px 10px rgba(0,0,0,.07)">'
+    + '<div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start">'
+    + '<div><label style="font-size:11px;font-weight:700;color:#555;display:block;margin-bottom:4px">📝 Bitácora General de la Semana</label>'
+    + '<textarea id="g125bita" rows="2" placeholder="Resumen semanal, hallazgos, pendientes..." style="width:100%;padding:8px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea></div>'
+    + '<div style="text-align:center;min-width:100px">'
+    + '<div style="font-size:11px;font-weight:700;color:#555;margin-bottom:5px">PROGRESO</div>'
+    + '<div style="font-size:28px;font-weight:900;color:#1565c0" id="g125pct">0%</div>'
+    + '<div style="font-size:10px;color:#888" id="g125cnt">0 / 0</div>'
+    + '<div style="background:#e0e0e0;border-radius:4px;height:6px;margin-top:4px;overflow:hidden">'
+    + '<div id="g125bar" style="height:100%;width:0%;background:#4caf50;border-radius:4px;transition:.3s"></div></div></div>'
+    + '</div></div>'
+    + '<div style="background:white;border-radius:12px;margin-top:10px;padding:14px 18px;box-shadow:0 2px 10px rgba(0,0,0,.07)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+    + '<div style="font-size:13px;font-weight:700;color:#1565c0">📋 Historial G-125</div>'
+    + '<button onclick="g125Hist()" style="font-size:11px;padding:3px 10px;border:1px solid #1565c0;border-radius:5px;background:white;color:#1565c0;cursor:pointer">🔄</button>'
+    + '</div><div id="g125hist" style="color:#aaa;font-size:12px;font-style:italic">Selecciona embarcación para ver historial</div></div>'
+  );
+}
+
+function g125Load() {
+  var emb  = document.getElementById('g125emb').value;
+  var body = document.getElementById('g125body');
+  var pie  = document.getElementById('g125pie');
+  if (!body) return;
+
+  if (!emb) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:#aaa"><div style="font-size:36px">🚢</div><div style="font-size:14px;font-weight:600;margin-top:8px">Selecciona la embarcación</div></div>';
+    if (pie) pie.style.display = 'none';
+    return;
+  }
+
+  var grupos = G125_MATRIX[emb];
+  if (!grupos || !grupos.length) {
+    body.innerHTML = '<div style="padding:30px;text-align:center;color:#aaa">Sin datos para ' + emb + '</div>';
+    return;
+  }
+
+  // Agrupar por sistema
+  var sistemas = {}, sysOrder = [];
+  for (var gi = 0; gi < grupos.length; gi++) {
+    var g = grupos[gi];
+    if (!sistemas[g.sistema]) { sistemas[g.sistema] = []; sysOrder.push(g.sistema); }
+    sistemas[g.sistema].push(g);
+  }
+
+  window._g125rows = [];
+  var idx = 0;
+  var html = '';
+
+  for (var si = 0; si < sysOrder.length; si++) {
+    var sysNom  = sysOrder[si];
+    var eqs     = sistemas[sysNom];
+    var cfg     = G125_SYS_COLORS[sysNom] || {bg:'#f5f5f5',hdr:'#555',icon:'🔩'};
+    var sysId   = 'gs' + si;
+    var totComp = 0;
+    for (var ei = 0; ei < eqs.length; ei++) totComp += eqs[ei].componentes.length;
+
+    html += '<div style="border-radius:10px;overflow:hidden;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)">';
+    html += '<div onclick="g125Toggle('' + sysId + '')" '
+      + 'style="background:' + cfg.hdr + ';color:white;padding:11px 16px;cursor:pointer;'
+      + 'display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+      + '<span style="font-size:18px">' + cfg.icon + '</span>'
+      + '<div><div style="font-size:13px;font-weight:800">' + sysNom + '</div>'
+      + '<div style="font-size:10px;opacity:.75">' + eqs.length + ' equipo(s) · ' + totComp + ' componentes</div></div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px">'
+      + '<span style="font-size:10px;opacity:.75" id="' + sysId + 'p">0/' + totComp + '</span>'
+      + '<span id="' + sysId + 'a" style="font-size:16px">' + (si === 0 ? '▼' : '▶') + '</span>'
+      + '</div></div>';
+
+    html += '<div id="' + sysId + '" style="display:' + (si === 0 ? 'block' : 'none') + ';background:' + cfg.bg + '">';
+
+    for (var ei2 = 0; ei2 < eqs.length; ei2++) {
+      var eq   = eqs[ei2];
+      var eqId = sysId + 'e' + ei2;
+
+      html += '<div style="background:' + cfg.hdr + '22;border-top:1px solid ' + cfg.hdr + '33;'
+        + 'padding:7px 16px 7px 42px;display:flex;justify-content:space-between;align-items:center">'
+        + '<div style="font-size:11px;font-weight:700;color:' + cfg.hdr + '">🔩 ' + eq.equipo + '</div>'
+        + '<div style="display:flex;gap:4px">'
+        + '<button onclick="g125MarkAll('' + eqId + '','OK')" style="padding:2px 8px;border:none;border-radius:10px;background:#e8f5e9;color:#2e7d32;font-size:10px;font-weight:700;cursor:pointer">✅ Todo OK</button>'
+        + '<button onclick="g125MarkAll('' + eqId + '','N/A')" style="padding:2px 8px;border:none;border-radius:10px;background:#f5f5f5;color:#555;font-size:10px;font-weight:700;cursor:pointer">➖ N/A</button>'
+        + '</div></div>';
+
+      html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:0;'
+        + 'padding:3px 12px 2px 42px;background:' + cfg.hdr + '11;font-size:10px;color:#999;font-weight:700">'
+        + '<div></div><div>Componente</div><div style="text-align:center">Horas</div>'
+        + '<div style="padding-left:6px">Observación</div><div style="text-align:center">Estado</div></div>';
+
+      html += '<div style="padding:3px 12px 6px 42px">';
+      for (var ci = 0; ci < eq.componentes.length; ci++) {
+        var comp = eq.componentes[ci];
+        idx++;
+        var rId = 'gr' + idx;
+        window._g125rows.push({rId:rId, sysId:sysId, eqId:eqId, sistema:sysNom, equipo:eq.equipo, comp:comp.nombre, hRef:comp.horas});
+
+        html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:4px;align-items:center;'
+          + 'padding:4px 6px;border-radius:5px;margin-bottom:2px;background:white;border:1px solid transparent" '
+          + 'onmouseover="this.style.background='' + cfg.bg + ''" onmouseout="this.style.background='white'">'
+          + '<div style="width:8px;height:8px;border-radius:50%;background:#e0e0e0" id="' + rId + 'dot"></div>'
+          + '<div style="font-size:12px;color:#333;font-weight:500">' + comp.nombre + '</div>'
+          + '<input type="number" id="' + rId + 'h" value="' + comp.horas + '" step="0.5" min="0" '
+          + 'style="padding:4px;border:1px solid #e0e0e0;border-radius:4px;font-size:11px;text-align:center;'
+          + 'background:#fffde7;width:100%;box-sizing:border-box" title="Horas (editable)">'
+          + '<input type="text" id="' + rId + 'o" placeholder="Observación..." '
+          + 'style="padding:4px 6px;border:1px solid #e0e0e0;border-radius:4px;font-size:11px;width:100%;'
+          + 'box-sizing:border-box;background:transparent" '
+          + 'onfocus="this.style.background='white'" onblur="this.style.background='transparent'">'
+          + '<div style="display:flex;gap:2px">'
+          + '<button id="' + rId + 'ok" onclick="g125Set('' + rId + '','OK','' + sysId + '')" '
+          + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">✅</button>'
+          + '<button id="' + rId + 'pe" onclick="g125Set('' + rId + '','PEN','' + sysId + '')" '
+          + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">⏳</button>'
+          + '<button id="' + rId + 'fa" onclick="g125Set('' + rId + '','FALTA','' + sysId + '')" '
+          + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">❌</button>'
+          + '<button id="' + rId + 'na" onclick="g125Set('' + rId + '','N/A','' + sysId + '')" '
+          + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">➖</button>'
+          + '</div>'
+          + '<input type="hidden" id="' + rId + 'est" value="">'
+          + '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+
+  body.innerHTML = html;
+  if (pie) pie.style.display = 'block';
+  g125Hist();
+}
+
+function g125Toggle(id) {
+  var el = document.getElementById(id);
+  var ar = document.getElementById(id + 'a');
+  if (!el) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (ar) ar.textContent = open ? '▶' : '▼';
+}
+
+function g125Set(rId, est, sysId) {
+  var hid = document.getElementById(rId + 'est');
+  var dot = document.getElementById(rId + 'dot');
+  if (hid) hid.value = est;
+  var dotCol = est==='OK'?'#4caf50':est==='PEN'?'#ff9800':est==='FALTA'?'#f44336':est==='N/A'?'#bbb':'#e0e0e0';
+  if (dot) dot.style.background = dotCol;
+  var clr = {
+    'OK':   {id:'ok',bg:'#e8f5e9',bd:'#4caf50',cl:'#2e7d32'},
+    'PEN':  {id:'pe',bg:'#fff8e1',bd:'#ffc107',cl:'#e65100'},
+    'FALTA':{id:'fa',bg:'#fce4ec',bd:'#f44336',cl:'#c62828'},
+    'N/A':  {id:'na',bg:'#f5f5f5',bd:'#bbb',   cl:'#555'}
+  };
+  ['ok','pe','fa','na'].forEach(function(b) {
+    var btn = document.getElementById(rId + b);
+    if (btn) { btn.style.background='white'; btn.style.borderColor='#ddd'; btn.style.color='#aaa'; }
+  });
+  var c = clr[est];
+  if (c) {
+    var btn2 = document.getElementById(rId + c.id);
+    if (btn2) { btn2.style.background=c.bg; btn2.style.borderColor=c.bd; btn2.style.color=c.cl; }
+  }
+  g125UpdProg(sysId);
+}
+
+function g125MarkAll(eqId, est) {
+  if (!window._g125rows) return;
+  for (var i = 0; i < window._g125rows.length; i++) {
+    if (window._g125rows[i].eqId === eqId) g125Set(window._g125rows[i].rId, est, window._g125rows[i].sysId);
+  }
+}
+
+function g125UpdProg(sysId) {
+  if (!window._g125rows) return;
+  var sysRows  = [], total = window._g125rows.length, done = 0;
+  for (var i = 0; i < window._g125rows.length; i++) {
+    var r = window._g125rows[i];
+    var v = document.getElementById(r.rId + 'est');
+    var val = v ? v.value : '';
+    if (r.sysId === sysId) sysRows.push(val);
+    if (val) done++;
+  }
+  var sysDone = sysRows.filter(function(v){ return v; }).length;
+  var sysPt = document.getElementById(sysId + 'p');
+  if (sysPt) sysPt.textContent = sysDone + '/' + sysRows.length;
+  var pct = total > 0 ? Math.round(done/total*100) : 0;
+  var pctEl = document.getElementById('g125pct');
+  var cntEl = document.getElementById('g125cnt');
+  var barEl = document.getElementById('g125bar');
+  if (pctEl) pctEl.textContent = pct + '%';
+  if (cntEl) cntEl.textContent = done + ' / ' + total;
+  if (barEl) { barEl.style.width = pct + '%'; barEl.style.background = pct>=80?'#4caf50':pct>=50?'#ff9800':'#f44336'; }
+}
+
+function g125Save() {
+  var emb   = document.getElementById('g125emb').value;
+  var resp  = (document.getElementById('g125resp').value || '').trim();
+  var fecha = document.getElementById('g125fecha').value;
+  var bita  = (document.getElementById('g125bita') || {value:''}).value || '';
+  if (!emb)  { showToast('Selecciona la embarcación','error'); return; }
+  if (!resp) { showToast('Ingresa el responsable','error'); return; }
+  if (!fecha){ showToast('Selecciona la fecha','error'); return; }
+  if (!window._g125rows || !window._g125rows.length) { showToast('Carga los sistemas primero','error'); return; }
+
+  var regs = [];
+  for (var i = 0; i < window._g125rows.length; i++) {
+    var r    = window._g125rows[i];
+    var est  = (document.getElementById(r.rId+'est') || {value:''}).value || '';
+    var obs  = (document.getElementById(r.rId+'o')   || {value:''}).value || '';
+    var hrs  = parseFloat((document.getElementById(r.rId+'h') || {value:r.hRef}).value) || r.hRef;
+    if (est || obs) regs.push({sistema:r.sistema, equipo:r.equipo, componente:r.comp, horasRef:r.hRef, horasRealizadas:hrs, estado:est, observacion:obs});
+  }
+  if (!regs.length) { showToast('Marca al menos un componente','error'); return; }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.error) { showToast(res.error,'error'); return; }
+      showToast('✅ G-125 guardado — ' + regs.length + ' componentes · ' + emb, 'success');
+      g125Hist();
+    })
+    .withFailureHandler(function(err) { showToast(err.message,'error'); })
+    .guardarG125({fecha:fecha, embarcacion:emb, responsable:resp,
+                  estadoGeneral:'EN PROCESO', observacionGeneral:bita, registros:regs});
+}
+
+function g125Hist() {
+  var el  = document.getElementById('g125hist');
+  var emb = (document.getElementById('g125emb') || {value:''}).value || '';
+  if (!el) return;
+  el.innerHTML = '<div style="color:#aaa;font-size:12px">Cargando...</div>';
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      if (!rows || !rows.length) { el.innerHTML = '<div style="color:#aaa;font-size:12px;font-style:italic">Sin registros para esta embarcación</div>'; return; }
+      var sem = {};
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var k = String(r.FECHA||'').substring(0,10) + '|' + (r.USUARIO||'');
+        if (!sem[k]) sem[k] = {fecha:String(r.FECHA||'').substring(0,10), resp:r.USUARIO||'', obs:r.OBS_GENERAL||'', total:0, ok:0, pe:0, fa:0, na:0};
+        sem[k].total++;
+        if (r.ESTADO_COMP==='OK') sem[k].ok++;
+        else if (r.ESTADO_COMP==='PEN') sem[k].pe++;
+        else if (r.ESTADO_COMP==='FALTA') sem[k].fa++;
+        else if (r.ESTADO_COMP==='N/A') sem[k].na++;
+      }
+      var items = Object.values(sem).sort(function(a,b){return b.fecha.localeCompare(a.fecha);}).slice(0,6);
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+      for (var j = 0; j < items.length; j++) {
+        var s = items[j];
+        var pct = s.total>0 ? Math.round(s.ok/s.total*100) : 0;
+        var col = pct>=80?'#4caf50':pct>=50?'#ff9800':'#f44336';
+        html += '<div style="border-radius:8px;border:1px solid #e3f2fd;overflow:hidden">'
+          + '<div style="background:#1565c0;color:white;padding:6px 10px">'
+          + '<div style="display:flex;justify-content:space-between;font-size:11px"><span style="font-weight:700">📅 ' + s.fecha + '</span><span style="color:#f59e0b;font-weight:800">' + pct + '%</span></div>'
+          + '<div style="font-size:10px;opacity:.7">👤 ' + (s.resp||'—') + '</div></div>'
+          + '<div style="padding:7px 10px;background:#f8fbff">'
+          + '<div style="display:flex;gap:4px;font-size:10px;margin-bottom:4px">'
+          + '<span style="background:#e8f5e9;color:#2e7d32;padding:1px 5px;border-radius:6px">✅ ' + s.ok + '</span>'
+          + '<span style="background:#fff8e1;color:#e65100;padding:1px 5px;border-radius:6px">⏳ ' + s.pe + '</span>'
+          + '<span style="background:#fce4ec;color:#c62828;padding:1px 5px;border-radius:6px">❌ ' + s.fa + '</span>'
+          + '<span style="background:#f5f5f5;color:#555;padding:1px 5px;border-radius:6px">➖ ' + s.na + '</span></div>'
+          + '<div style="background:#e0e0e0;border-radius:3px;height:4px;overflow:hidden">'
+          + '<div style="height:100%;width:' + pct + '%;background:' + col + ';border-radius:3px"></div></div>'
+          + (s.obs ? '<div style="margin-top:3px;font-size:10px;color:#888;font-style:italic">' + s.obs.substring(0,50) + (s.obs.length>50?'...':'') + '</div>' : '')
+          + '</div></div>';
+      }
+      el.innerHTML = html + '</div>';
+    })
+    .withFailureHandler(function(){ if(el) el.innerHTML='<div style="color:#e53935;font-size:11px">Error al cargar</div>'; })
+    .getG125({embarcacion: emb});
+}
+
+
+
+function buildG126Form() {
+  var hoy  = new Date().toISOString().split('T')[0];
+  var embs = (APP.data.embarcaciones || []);
+  var opts = '<option value="">— Seleccionar —</option>';
+  for (var i = 0; i < embs.length; i++) opts += '<option>' + embs[i].NOMBRE + '</option>';
+
+  var filas = ['M/P ER','M/P BR','M/P','GEN ER','GEN BR','GEN AUX'];
+  var tablaRows = '';
+  for (var f = 0; f < filas.length; f++) {
+    var fi = filas[f];
+    var fid = 'g126_' + f;
+    tablaRows += '<tr>'
+      + '<td style="padding:6px 10px;font-weight:700;border:1px solid #e0e0e0;background:#f0f8ff">' + fi + '</td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px"><input type="text" id="' + fid + '_tipo" placeholder="Ej: Cambio filtro aceite" style="width:100%;border:none;font-size:11px;padding:3px;box-sizing:border-box"></td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_ult" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_act" step="0.5" min="0" placeholder="0" oninput="g126Calc('' + fid + '')" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_prox" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center;background:#fffde7"></td>'
+      + '</tr>';
+  }
+
+  return (
+    '<div style="background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)">'
+    + '<div style="background:#2e7d32;color:white;padding:12px 20px;display:flex;justify-content:space-between;align-items:center">'
+    + '<div><div style="font-size:9px;opacity:.7;text-transform:uppercase">Formato</div><div style="font-size:22px;font-weight:900">G-126</div></div>'
+    + '<div style="font-size:12px;font-weight:600;text-align:right">Actividades de Mantenimiento<br><span style="opacity:.75;font-size:11px">Control de Horómetros</span></div>'
+    + '</div>'
+    + '<div style="padding:16px">'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px;border:1px solid #e0e0e0;border-radius:8px;margin-bottom:14px">'
+    + '<div><label style="font-size:10px;font-weight:700;color:#888;display:block;margin-bottom:2px">NAVE *</label>'
+    + '<select id="g126emb" onchange="g126LoadInfo()" style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px">' + opts + '</select></div>'
+    + '<div><label style="font-size:10px;font-weight:700;color:#888;display:block;margin-bottom:2px">MATRÍCULA</label>'
+    + '<input id="g126mat" readonly style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#f9f9f9;box-sizing:border-box" placeholder="Auto"></div>'
+    + '<div><label style="font-size:10px;font-weight:700;color:#888;display:block;margin-bottom:2px">LUGAR</label>'
+    + '<input id="g126lug" placeholder="Puerto..." style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box"></div>'
+    + '<div><label style="font-size:10px;font-weight:700;color:#888;display:block;margin-bottom:2px">FECHA *</label>'
+    + '<input type="date" id="g126fecha" value="' + hoy + '" style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;box-sizing:border-box"></div>'
+    + '<div style="grid-column:1/-1"><label style="font-size:10px;font-weight:700;color:#888;display:block;margin-bottom:2px">TIPO DE MANTENIMIENTO *</label>'
+    + '<select id="g126tipo" style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px">'
+    + '<option value="">— Seleccionar —</option>'
+    + '<option>Mantenimiento Preventivo T1 (250 hrs)</option>'
+    + '<option>Mantenimiento Preventivo T2 (1000 hrs)</option>'
+    + '<option>Mantenimiento Preventivo T3 (5000 hrs)</option>'
+    + '<option>Cambio de Filtros</option>'
+    + '<option>Inspección Visual</option>'
+    + '<option>Mantenimiento Correctivo</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<div style="overflow-x:auto;margin-bottom:12px">'
+    + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="background:#2e7d32;color:white">'
+    + '<th style="padding:8px 10px;text-align:left;border:1px solid #1b5e20;min-width:70px">EQUIPO</th>'
+    + '<th style="padding:8px;text-align:left;border:1px solid #1b5e20;min-width:150px">TIPO DE MANTENIMIENTO</th>'
+    + '<th style="padding:8px;text-align:center;border:1px solid #1b5e20;min-width:80px">Horóm.<br>Últ. Cambio</th>'
+    + '<th style="padding:8px;text-align:center;border:1px solid #1b5e20;min-width:80px">Horóm.<br>Actual</th>'
+    + '<th style="padding:8px;text-align:center;border:1px solid #1b5e20;min-width:80px">Horóm.<br>Próx. Cambio</th>'
+    + '</tr></thead>'
+    + '<tbody>' + tablaRows + '</tbody>'
+    + '</table></div>'
+    + '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;color:#555;display:block;margin-bottom:4px">Observaciones</label>'
+    + '<textarea id="g126obs" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+    + '<button class="btn btn-outline" onclick="pmSwitch('g126')">🔄 Limpiar</button>'
+    + '<button style="padding:10px 20px;background:#2e7d32;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer" onclick="g126Save()">💾 Registrar G-126</button>'
+    + '</div></div></div>'
+  );
+}
+
+function g126Calc(fid) {
+  var act  = parseFloat(document.getElementById(fid+'_act').value||0);
+  var prox = document.getElementById(fid+'_prox');
+  if (prox && act > 0 && !prox.value) prox.value = (act + 250).toFixed(0);
+}
+
+function g126LoadInfo() {
+  var emb = document.getElementById('g126emb').value;
+  var embObj = (APP.data.embarcaciones||[]).find(function(e){ return e.NOMBRE===emb; });
+  var mat = document.getElementById('g126mat');
+  if (mat && embObj) mat.value = embObj.CODIGO||'';
+}
+
+function g126Save() {
+  var emb  = document.getElementById('g126emb').value;
+  var tipo = document.getElementById('g126tipo').value;
+  if (!emb)  { showToast('Selecciona la embarcación','error'); return; }
+  if (!tipo) { showToast('Selecciona el tipo de mantenimiento','error'); return; }
+
+  var filaIds = ['g126_0','g126_1','g126_2','g126_3','g126_4','g126_5'];
+  function hor(fid) {
+    return {
+      ultCambio:  parseFloat((document.getElementById(fid+'_ult') ||{value:0}).value||0),
+      actual:     parseFloat((document.getElementById(fid+'_act') ||{value:0}).value||0),
+      proxCambio: parseFloat((document.getElementById(fid+'_prox')||{value:0}).value||0)
+    };
+  }
+  var datos = {
+    fecha:      document.getElementById('g126fecha').value,
+    embarcacion:emb,
+    lugar:      (document.getElementById('g126lug')||{value:''}).value||'',
+    tipoMant:   tipo,
+    mpEr:   hor('g126_0'), mpBr:  hor('g126_1'), mp:    hor('g126_2'),
+    genEr:  hor('g126_3'), genBr: hor('g126_4'), genAux:hor('g126_5'),
+    observacion:(document.getElementById('g126obs')||{value:''}).value||''
+  };
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (res&&res.error){showToast(res.error,'error');return;}
+      showToast('✅ G-126 registrado','success');
+      pmSwitch('g126');
+    })
+    .withFailureHandler(function(err){showToast(err.message,'error');})
+    .guardarG126(datos);
+}
+
+// ─── KPIs ────────────────────────────────────────────────────
+function renderKpis() {
+  const content = document.getElementById('content');
+  const embOptions = APP.data.embarcaciones.map(e => `<option value="${e.ID}">${e.NOMBRE}</option>`).join('');
+  content.innerHTML = `
+    <div class="page-header"><h2>📈 KPIs & Confiabilidad</h2></div>
+    <div class="section">
+      <div class="section-header"><span class="section-title">🔍 Calcular KPIs</span></div>
+      <div class="section-body">
+        <div class="form-grid-3" style="margin-bottom:16px">
+          <div class="form-group">
+            <label class="form-label">Embarcación</label>
+            <select class="form-control" id="kpi_emb">
+              <option value="">Todas</option>${embOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Año</label>
+            <select class="form-control" id="kpi_ano">
+              ${[2025,2024,2023,2022].map(a=>`<option value="${a}" ${a===new Date().getFullYear()?'selected':''}>${a}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="justify-content:flex-end;flex-direction:row;align-items:flex-end">
+            <button class="btn btn-primary" onclick="calcularKPIsUI()">📊 Calcular KPIs</button>
+          </div>
+        </div>
+        <div id="kpiResults"><div class="empty-state"><div class="icon">📈</div><div>Selecciona parámetros y calcula</div></div></div>
+      </div>
+    </div>`;
+}
+
+function calcularKPIsUI() {
+  const embId = document.getElementById('kpi_emb').value;
+  const ano = document.getElementById('kpi_ano').value;
+  document.getElementById('kpiResults').innerHTML = '<div class="loading-screen" style="height:150px"><div class="loader-anchor">⚓</div><div class="loader-text">Calculando KPIs...</div></div>';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || res.error) { document.getElementById('kpiResults').innerHTML = '<div class="empty-state">Error: ' + (res && res.error) + '</div>'; return; }
+      const kpis = res.kpis;
+      if (!kpis.length) { document.getElementById('kpiResults').innerHTML = '<div class="empty-state"><div class="icon">📊</div><div>No hay datos para el período seleccionado</div></div>'; return; }
+
+      document.getElementById('kpiResults').innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Sistema</th><th>Equipo</th><th>#Fallas</th><th>Días Fop</th><th>MTTR (días)</th><th>MTBF (días)</th><th>λ Tasa</th><th>Disponibilidad</th><th>R(t) 365d</th><th>M(t)</th><th>Criticidad</th></tr></thead>
+            <tbody>
+              ${kpis.map(k => `
+                <tr>
+                  <td>${k.sistema}</td>
+                  <td>${k.equipo}</td>
+                  <td class="${k.numFallas>3?'criticidad-high':k.numFallas>0?'criticidad-med':''}"><strong>${k.numFallas}</strong></td>
+                  <td>${k.diasFop}</td>
+                  <td>${k.mttr}</td>
+                  <td>${k.mtbf}</td>
+                  <td>${k.tasaFallas}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div class="progress-bar" style="width:80px">
+                        <div class="progress-fill" style="width:${parseFloat(k.disponibilidadNum*100).toFixed(0)}%;background:${parseFloat(k.disponibilidadNum)>=0.85?'#43a047':parseFloat(k.disponibilidadNum)>=0.7?'#fb8c00':'#e53935'}"></div>
+                      </div>
+                      <strong style="color:${parseFloat(k.disponibilidadNum)>=0.85?'#43a047':parseFloat(k.disponibilidadNum)>=0.7?'#fb8c00':'#e53935'}">${k.disponibilidad}</strong>
+                    </div>
+                  </td>
+                  <td>${k.probFalla}</td>
+                  <td>${k.mantenibilidad}</td>
+                  <td><span class="${criticidadClass(k.criticidad)}">${k.criticidad}</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    })
+    .withFailureHandler(err => { document.getElementById('kpiResults').innerHTML = '<div class="empty-state">Error: ' + err.message + '</div>'; })
+    .calcularKPIs(embId, parseInt(ano));
+}
+
+// ─── MATRIZ DE CRITICIDAD ────────────────────────────────────
+function renderCriticidad() {
+  google.script.run
+    .withSuccessHandler(data => {
+      const content = document.getElementById('content');
+      if (!data || data.error) { content.innerHTML = '<div class="empty-state">Error cargando datos</div>'; return; }
+      const criticos = data.filter(d => d.nivel === 'CRITICO').length;
+      const altos = data.filter(d => d.nivel === 'ALTO').length;
+      const medios = data.filter(d => d.nivel === 'MEDIO').length;
+      const bajos = data.filter(d => d.nivel === 'BAJO').length;
+
+      content.innerHTML = `
+        <div class="page-header"><h2>🎯 Matriz de Criticidad</h2></div>
+        <div class="cards-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+          ${statCard('🔴','Críticos', criticos, 'Nivel ≥32', 'danger')}
+          ${statCard('🟠','Altos', altos, 'Nivel 16-31', 'warning')}
+          ${statCard('🟡','Medios', medios, 'Nivel 8-15', 'gold')}
+          ${statCard('🟢','Bajos', bajos, 'Nivel <8', 'success')}
+        </div>
+        <div class="section">
+          <div class="section-header"><span class="section-title">🎯 Equipos por Nivel de Criticidad</span></div>
+          <div class="section-body">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Embarcación</th><th>Sistema</th><th>Equipo</th><th>Nivel Numérico</th><th>Clasificación</th></tr></thead>
+                <tbody>
+                  ${data.sort((a,b) => (b.criticidad||0)-(a.criticidad||0)).map(d => `
+                    <tr>
+                      <td>${d.embarcacion}</td>
+                      <td>${d.sistema}</td>
+                      <td>${d.equipo}</td>
+                      <td><strong>${d.criticidad||0}</strong></td>
+                      <td><span class="${criticidadClassFull(d.nivel)}">${d.nivel||'BAJO'}</span></td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>`;
+    })
+    .withFailureHandler(err => showError(err.message))
+    .getMatrizCriticidad();
+}
+
+// ─── DISPONIBILIDAD ──────────────────────────────────────────
+function renderDisponibilidad() {
+  google.script.run
+    .withSuccessHandler(data => {
+      const content = document.getElementById('content');
+      if (!data) { content.innerHTML = '<div class="empty-state">Sin datos</div>'; return; }
+      const promedio = data.length ? (data.reduce((s,d) => s + parseFloat(d.disponibilidad), 0) / data.length).toFixed(1) : 0;
+      content.innerHTML = `
+        <div class="page-header"><h2>📉 Disponibilidad Operativa de Flota</h2></div>
+        <div class="cards-grid" style="margin-bottom:20px">
+          ${statCard('📊','Disponibilidad Promedio', promedio + '%', 'Flota completa', parseFloat(promedio)>=85?'success':parseFloat(promedio)>=70?'warning':'danger')}
+          ${statCard('✅','Embarcaciones BUENA', data.filter(d=>d.estado==='BUENA').length, '≥ 85%', 'success')}
+          ${statCard('⚠️','Embarcaciones REGULAR', data.filter(d=>d.estado==='REGULAR').length, '70-84%', 'warning')}
+          ${statCard('🚨','Embarcaciones CRÍTICA', data.filter(d=>d.estado==='CRITICA').length, '< 70%', 'danger')}
+        </div>
+        <div class="section">
+          <div class="section-body">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px">
+              ${data.map(d => {
+                const pct = parseFloat(d.disponibilidad);
+                const color = pct>=85?'#43a047':pct>=70?'#fb8c00':'#e53935';
+                return `<div class="disp-gauge">
+                  ${svgGauge(pct, color)}
+                  <div class="disp-name">${d.nombre}</div>
+                  <div class="disp-pct" style="color:${color}">${d.disponibilidad}%</div>
+                  <div class="disp-status"><span class="badge ${d.estado==='BUENA'?'badge-success':d.estado==='REGULAR'?'badge-warning':'badge-danger'}">${d.estado}</span></div>
+                  <small style="color:var(--gray-400)">${d.numFallas} fallas · ${d.diasFop} días fop</small>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>`;
+    })
+    .withFailureHandler(err => showError(err.message))
+    .getDisponibilidadFlota();
+}
+
+function svgGauge(pct, color) {
+  const r = 40, cx = 60, cy = 60;
+  const circumference = Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+  return `<svg width="120" height="70" viewBox="0 0 120 70">
+    <path d="M 20 60 A 40 40 0 0 1 100 60" fill="none" stroke="#ecf2fa" stroke-width="10"/>
+    <path d="M 20 60 A 40 40 0 0 1 100 60" fill="none" stroke="${color}" stroke-width="10"
+      stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+      style="transform-origin:60px 60px;transform:rotate(0deg)"/>
+    <text x="60" y="58" text-anchor="middle" font-size="14" font-weight="800" fill="${color}">${pct}%</text>
+  </svg>`;
+}
+
+// ─── COMBUSTIBLE ─────────────────────────────────────────────
+
+// ─── STOCK DE REPUESTOS  v3.1 ────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  STOCK v3.2 — UI con panel de movimientos integrado
+//  Stock = calculado desde movimientos (no campo editable)
+// ════════════════════════════════════════════════════════════
+
+function renderStock() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(items => buildStockPage(items || []))
+    .withFailureHandler(err => showToast(err.message, 'error'))
+    .getStockItems({});
+}
+
+function buildStockPage(items) {
+  const alertas = items.filter(i => i.alerta).length;
+  const content = document.getElementById('content');
+  APP.data.stock = items;
+  const conStock = items.filter(i => i.stockTotal > 0).length;
+  const sinStock = items.filter(i => i.stockTotal <= 0).length;
+
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>📦 Stock de Repuestos y Consumibles</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="background:#e8f5e9;color:#2e7d32;padding:5px 12px;border-radius:6px;font-size:13px;font-weight:bold">
+          ✓ ${conStock} con stock
+        </span>
+        <span style="background:#fafafa;color:#888;padding:5px 12px;border-radius:6px;font-size:13px">
+          ${sinStock} sin stock
+        </span>
+        ${alertas ? `<span style="background:#e53935;color:white;padding:5px 12px;border-radius:6px;font-size:13px">⚠ ${alertas} bajo mínimo</span>` : ''}
+        <button class="btn btn-primary" onclick="mostrarPanelMovimiento()">
+          + Registrar Movimiento
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="sincronizarDesdeExcel()" title="Agregar nuevos ítems del Excel al sistema">
+          🔄 Sincronizar Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- PANEL DE MOVIMIENTO (oculto por defecto) -->
+    <div id="panel-movimiento" style="display:none;background:#fff;border:2px solid #1a3a5c;border-radius:12px;padding:20px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0;color:#1a3a5c">📋 Registrar Movimiento de Stock</h3>
+        <button class="btn btn-outline btn-sm" onclick="ocultarPanelMovimiento()">✕ Cerrar</button>
+      </div>
+
+      <!-- Tipo de movimiento -->
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button id="btn-tipo-INGRESO" class="btn-tipo-mov btn-tipo-activo"
+          onclick="seleccionarTipoMov('INGRESO')"
+          style="flex:1;padding:10px;border-radius:8px;border:2px solid #2e7d32;background:#e8f5e9;color:#2e7d32;font-weight:bold;cursor:pointer">
+          ↑ INGRESO
+        </button>
+        <button id="btn-tipo-SALIDA" class="btn-tipo-mov"
+          onclick="seleccionarTipoMov('SALIDA')"
+          style="flex:1;padding:10px;border-radius:8px;border:2px solid #ccc;background:#fff;color:#555;font-weight:bold;cursor:pointer">
+          ↓ SALIDA
+        </button>
+        <button id="btn-tipo-TRASLADO" class="btn-tipo-mov"
+          onclick="seleccionarTipoMov('TRASLADO')"
+          style="flex:1;padding:10px;border-radius:8px;border:2px solid #ccc;background:#fff;color:#555;font-weight:bold;cursor:pointer">
+          ⇄ TRASLADO
+        </button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <!-- Búsqueda de repuesto -->
+        <div style="grid-column:1/-1">
+          <label class="form-label">Buscar repuesto / consumible <span style="color:red">*</span></label>
+          <div style="position:relative">
+            <input class="form-control" type="text" id="mov-buscar-item"
+              placeholder="Escribe nombre o código del repuesto..."
+              oninput="buscarItemParaMov(this.value)"
+              autocomplete="off">
+            <div id="mov-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:white;border:1px solid #ddd;border-radius:0 0 8px 8px;max-height:200px;overflow-y:auto;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.15)"></div>
+          </div>
+          <!-- ítem seleccionado -->
+          <div id="mov-item-seleccionado" style="display:none;margin-top:8px;background:#e8f5e9;border-radius:8px;padding:10px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <strong id="mov-item-nombre"></strong>
+                <div style="font-size:12px;color:#555;margin-top:2px" id="mov-item-info"></div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:20px;font-weight:bold;color:#1a3a5c" id="mov-item-stock">—</div>
+                <div style="font-size:11px;color:#888" id="mov-item-unidad"></div>
+              </div>
+            </div>
+            <!-- desglose de stock por ubicación -->
+            <div id="mov-stock-detalle" style="margin-top:8px;padding-top:8px;border-top:1px solid #c8e6c9;font-size:12px;color:#555"></div>
+          </div>
+          <input type="hidden" id="mov-id-item">
+          <input type="hidden" id="mov-tipo-actual" value="INGRESO">
+        </div>
+
+        <!-- Ubicación origen -->
+        <div id="grupo-origen">
+          <label class="form-label">Ubicación origen</label>
+          <select class="form-control" id="mov-origen">
+            <option value="ALMACEN CHIMBOTE">ALMACEN CHIMBOTE</option>
+            <option>ISLA CHINCHA</option><option>PELICANO</option>
+            <option>GUANAY</option><option>DELFIN 11</option>
+            <option>DELFIN 12</option><option>CISTERNA 1</option>
+            <option value="PROVEEDOR">PROVEEDOR</option>
+          </select>
+        </div>
+
+        <!-- Ubicación destino (solo TRASLADO) -->
+        <div id="grupo-destino" style="display:none">
+          <label class="form-label">Ubicación destino <span style="color:red">*</span></label>
+          <select class="form-control" id="mov-destino">
+            <option value="">— Seleccionar —</option>
+            <option>ALMACEN CHIMBOTE</option>
+            <option>ISLA CHINCHA</option><option>PELICANO</option>
+            <option>GUANAY</option><option>DELFIN 11</option>
+            <option>DELFIN 12</option><option>CISTERNA 1</option>
+          </select>
+        </div>
+
+        <!-- Embarcación (solo SALIDA) -->
+        <div id="grupo-embarcacion" style="display:none">
+          <label class="form-label">Embarcación / destino de uso</label>
+          <select class="form-control" id="mov-embarcacion">
+            <option value="">— Uso interno / consumo —</option>
+            <option>GUANAY</option><option>PELICANO</option><option>ISLA CHINCHA</option>
+            <option>DELFIN 11</option><option>DELFIN 12</option>
+            <option>ALCATRAZ</option><option>CISTERNA 1</option><option>PANGA</option>
+          </select>
+        </div>
+
+        <!-- Cantidad -->
+        <div>
+          <label class="form-label">Cantidad <span style="color:red">*</span></label>
+          <input class="form-control" type="number" id="mov-cantidad"
+            step="0.01" min="0.01" placeholder="0">
+        </div>
+
+        <!-- Motivo -->
+        <div>
+          <label class="form-label">Motivo / Descripción</label>
+          <input class="form-control" id="mov-motivo"
+            placeholder="Ej: Mantenimiento T1 Motor Principal GUANAY">
+        </div>
+
+        <!-- OT asociada -->
+        <div style="grid-column:1/-1">
+          <label class="form-label">OT asociada (opcional)</label>
+          <input class="form-control" id="mov-ot" placeholder="OT-2025-XXXXX">
+        </div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-outline" onclick="ocultarPanelMovimiento()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-guardar-mov" onclick="guardarMovimientoStock()">
+          💾 Guardar Movimiento
+        </button>
+      </div>
+    </div>
+
+    <!-- FILTROS -->
+    <div class="filter-bar" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <input class="form-control" style="flex:2;min-width:180px" type="text" id="stk-bus"
+        placeholder="🔍 Buscar repuesto..." oninput="filtrarStock()">
+      <select class="form-control" style="flex:1;min-width:140px" id="stk-ubic" onchange="filtrarStock()">
+        <option value="">Todas las ubicaciones</option>
+        <option>ALMACEN CHIMBOTE</option><option>ISLA CHINCHA</option>
+        <option>PELICANO</option><option>GUANAY</option>
+        <option>DELFIN 11</option><option>DELFIN 12</option><option>CISTERNA 1</option>
+      </select>
+      <select class="form-control" style="flex:1;min-width:140px" id="stk-fam" onchange="filtrarStock()">
+        <option value="">Todas las familias</option>
+        <option>GRASAS Y LUBRICANTES</option><option>FERRETERIA NAVAL</option>
+        <option>FILTROS</option><option>MAQUINARIAS Y EQUIPOS</option>
+        <option>MAT. ELECTRICIDAD</option><option>MANTENIMIENTO</option>
+        <option>EPPS</option><option>SEGURIDAD Y SALVAMENTO</option>
+        <option>PINTURAS</option><option>ASEO Y LIMPIEZA</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="stk-alerta" onchange="filtrarStock()">
+        Solo stock bajo
+      </label>
+    </div>
+
+    <!-- TABLA DE STOCK -->
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap" id="stk-tabla">${buildTablaStock(items)}</div>
+      </div>
+    </div>
+
+    <!-- HISTORIAL DE MOVIMIENTOS -->
+    <div class="section" style="margin-top:16px">
+      <div class="section-header" style="cursor:pointer" onclick="toggleHistorialMovs()">
+        📋 Historial de Movimientos
+        <span id="historial-toggle-icon" style="float:right">▼ Ver</span>
+      </div>
+      <div id="historial-movimientos-container" style="display:none">
+        <div class="section-body">
+          <div style="margin-bottom:10px;display:flex;gap:8px">
+            <select class="form-control" style="flex:1" id="hist-mov-ubic" onchange="cargarHistorialMovs()">
+              <option value="">Todas las ubicaciones</option>
+              <option>ALMACEN CHIMBOTE</option><option>ISLA CHINCHA</option>
+              <option>PELICANO</option><option>GUANAY</option>
+              <option>DELFIN 11</option><option>DELFIN 12</option>
+            </select>
+            <select class="form-control" style="flex:1" id="hist-mov-tipo" onchange="cargarHistorialMovs()">
+              <option value="">Todos los tipos</option>
+              <option>INGRESO</option><option>SALIDA</option><option>TRASLADO</option>
+            </select>
+          </div>
+          <div class="table-wrap" id="hist-movs-tabla">
+            <em style="color:#888">Haz clic en "Ver" para cargar el historial</em>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildTablaStock(items) {
+  if (!items.length) return '<div class="empty-state"><div class="icon">📦</div><div>Sin ítems que coincidan</div></div>';
+
+  // Agrupar por CLAVE para mostrar ítem + todas sus ubicaciones juntas
+  const porClave = {};
+  const orden    = [];
+  items.forEach(it => {
+    const k = it.clave || it.id;
+    if (!porClave[k]) { porClave[k] = []; orden.push(k); }
+    porClave[k].push(it);
+  });
+
+  let html = `<table>
+    <thead>
+      <tr>
+        <th>Clave</th>
+        <th>Descripción</th>
+        <th style="text-align:center">Stock total</th>
+        <th style="text-align:center">Mínimo</th>
+        <th>Unidad</th>
+        <th>Familia</th>
+        <th>Distribución por ubicación</th>
+        <th style="text-align:center">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  orden.forEach(k => {
+    const filas   = porClave[k];
+    const stockTot = filas.reduce((s, f) => s + f.stockActual, 0);
+    const mini     = filas[0].stockMinimo;
+    const alerta   = mini > 0 && stockTot <= mini;
+    const ubics    = filas.filter(f => f.stockActual > 0);
+
+    // Distribución: una pastilla por ubicación con su cantidad
+    const distHtml = ubics.length
+      ? ubics.map(f => `
+          <span style="display:inline-flex;align-items:center;gap:4px;background:${f.ubicacion==='ALMACEN CHIMBOTE'?'#e3f2fd':'#e8f5e9'};
+            border-radius:6px;padding:2px 8px;margin:2px;font-size:12px">
+            <b>${f.ubicacion.replace('ALMACEN CHIMBOTE','ALMACÉN')}</b>:
+            <span style="font-weight:bold;color:${f.stockActual>0?'#1a3a5c':'#e53935'}">${f.stockActual}</span>
+          </span>`).join('')
+      : '<span style="color:#aaa;font-size:12px">Sin stock</span>';
+
+    html += `<tr style="${alerta ? 'background:#fff3f3' : ''}">
+      <td><small style="color:#888">${filas[0].clave||'—'}</small></td>
+      <td style="font-weight:500">${filas[0].descripcion}</td>
+      <td style="text-align:center;font-weight:bold;font-size:16px;color:${alerta?'#e53935':stockTot>0?'#2e7d32':'#aaa'}">
+        ${stockTot}
+        ${alerta ? '<br><span style="background:#e53935;color:white;padding:1px 6px;border-radius:3px;font-size:10px">⚠ BAJO</span>' : ''}
+      </td>
+      <td style="text-align:center">${mini||'—'}</td>
+      <td style="text-align:center"><small>${filas[0].unidad}</small></td>
+      <td><small>${filas[0].familia}</small></td>
+      <td>${distHtml}</td>
+      <td style="text-align:center">
+        <button class="btn btn-sm" style="background:#1a3a5c;color:white;font-size:11px;padding:3px 10px"
+          onclick="abrirMovDesdeTabla('${filas[0].id}','${filas[0].descripcion.replace(/'/g,"\'")}','${filas[0].ubicacion}','${filas[0].unidad}',${stockTot})">
+          + Movimiento
+        </button>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  return html;
+}
+
+function filtrarStock() {
+  const bus  = document.getElementById('stk-bus')?.value.toLowerCase() || '';
+  const ubic = document.getElementById('stk-ubic')?.value || '';
+  const fam  = document.getElementById('stk-fam')?.value  || '';
+  const alerta = document.getElementById('stk-alerta')?.checked || false;
+  let items = APP.data.stock || [];
+  if (bus)   items = items.filter(i => i.descripcion.toLowerCase().includes(bus) || i.clave.toLowerCase().includes(bus));
+  if (ubic)  items = items.filter(i => i.ubicacion === ubic);
+  if (fam)   items = items.filter(i => i.familia === fam);
+  if (alerta) items = items.filter(i => i.alerta);
+  document.getElementById('stk-tabla').innerHTML = buildTablaStock(items);
+}
+
+// ── Panel movimiento ─────────────────────────────────────────
+function mostrarPanelMovimiento() {
+  document.getElementById('panel-movimiento').style.display = 'block';
+  document.getElementById('panel-movimiento').scrollIntoView({ behavior:'smooth' });
+  limpiarFormMovimiento();
+}
+
+function ocultarPanelMovimiento() {
+  document.getElementById('panel-movimiento').style.display = 'none';
+}
+
+function limpiarFormMovimiento() {
+  document.getElementById('mov-buscar-item').value = '';
+  document.getElementById('mov-id-item').value = '';
+  document.getElementById('mov-cantidad').value = '';
+  document.getElementById('mov-motivo').value = '';
+  document.getElementById('mov-ot').value = '';
+  document.getElementById('mov-item-seleccionado').style.display = 'none';
+  document.getElementById('mov-sugerencias').style.display = 'none';
+  seleccionarTipoMov('INGRESO');
+}
+
+function seleccionarTipoMov(tipo) {
+  document.getElementById('mov-tipo-actual').value = tipo;
+  const colores = { INGRESO:'#2e7d32', SALIDA:'#f57c00', TRASLADO:'#0288d1' };
+  ['INGRESO','SALIDA','TRASLADO'].forEach(t => {
+    const btn = document.getElementById('btn-tipo-'+t);
+    if (t === tipo) {
+      btn.style.border = '2px solid ' + colores[t];
+      btn.style.background = colores[t] + '22';
+      btn.style.color = colores[t];
+    } else {
+      btn.style.border = '2px solid #ccc';
+      btn.style.background = '#fff';
+      btn.style.color = '#555';
+    }
+  });
+  document.getElementById('grupo-destino').style.display    = tipo==='TRASLADO' ? 'block' : 'none';
+  document.getElementById('grupo-embarcacion').style.display = tipo==='SALIDA'   ? 'block' : 'none';
+  // Label origen
+  const lblOrigen = document.querySelector('#grupo-origen label');
+  if (lblOrigen) lblOrigen.textContent = tipo==='INGRESO' ? 'Ubicación de ingreso' : 'Ubicación origen';
+}
+
+// ── Búsqueda en tiempo real ──────────────────────────────────
+let _buscarTimer = null;
+function buscarItemParaMov(texto) {
+  clearTimeout(_buscarTimer);
+  const sug = document.getElementById('mov-sugerencias');
+  if (texto.length < 2) { sug.style.display = 'none'; return; }
+  _buscarTimer = setTimeout(() => {
+    google.script.run
+      .withSuccessHandler(items => mostrarSugerencias(items))
+      .buscarItemsCatalogo(texto);
+  }, 300);
+}
+
+function mostrarSugerencias(items) {
+  const sug = document.getElementById('mov-sugerencias');
+  if (!items || !items.length) {
+    sug.innerHTML = '<div style="padding:10px;color:#888;font-size:13px">Sin resultados</div>';
+    sug.style.display = 'block';
+    return;
+  }
+  sug.innerHTML = items.map(it => {
+    const stockTotal = it.stockTotal || 0;
+    const stockColor = stockTotal > 0 ? '#2e7d32' : '#e53935';
+    return `<div onclick="seleccionarItemMov(${JSON.stringify(it).replace(/"/g,'&quot;')})"
+      style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;hover:background:#f5f5f5"
+      onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='white'">
+      <div style="font-weight:600;font-size:13px">${it.descripcion}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">
+        ${it.clave ? `<span style="background:#e3f2fd;padding:1px 5px;border-radius:3px;margin-right:6px">${it.clave}</span>` : ''}
+        ${it.familia}
+        <span style="float:right;font-weight:bold;color:${stockColor}">Stock: ${stockTotal} ${it.unidad}</span>
+      </div>
+    </div>`;
+  }).join('');
+  sug.style.display = 'block';
+}
+
+function seleccionarItemMov(item) {
+  document.getElementById('mov-sugerencias').style.display = 'none';
+  document.getElementById('mov-buscar-item').value = item.descripcion;
+  document.getElementById('mov-id-item').value = item.id;
+
+  // Mostrar ítem seleccionado con stock actual
+  document.getElementById('mov-item-seleccionado').style.display = 'block';
+  document.getElementById('mov-item-nombre').textContent = item.descripcion;
+  document.getElementById('mov-item-info').textContent =
+    (item.clave || '') + ' · ' + item.familia + ' · ' + item.ubicacion;
+  document.getElementById('mov-item-stock').textContent = item.stockTotal;
+  document.getElementById('mov-item-unidad').textContent = item.unidad;
+
+  // Desglose por ubicación
+  const detalle = item.saldoPorUbic || {};
+  const detalleHtml = Object.entries(detalle).length
+    ? Object.entries(detalle).map(([ub, cant]) =>
+        `<span style="margin-right:10px"><b>${ub}</b>: ${cant} ${item.unidad}</span>`
+      ).join('')
+    : '<em>Sin movimientos registrados aún — ingresa el stock inicial</em>';
+  // Mostrar distribución por ubicación
+  const detalleEntries = Object.entries(detalle).filter(([,v])=>v>0);
+  document.getElementById('mov-stock-detalle').innerHTML = detalleEntries.length
+    ? detalleEntries.map(([ub,c]) =>
+        `<span style="margin-right:10px;font-size:12px">
+          <b>${ub.replace('ALMACEN CHIMBOTE','ALMACÉN')}</b>: ${c} ${item.unidad}
+        </span>`).join('')
+    : '<em style="color:#aaa">Sin stock registrado aún — registra un ingreso inicial</em>';
+
+  // Pre-seleccionar ubicación origen
+  if (item.ubicacion) {
+    const sel = document.getElementById('mov-origen');
+    for (let i=0; i<sel.options.length; i++) {
+      if (sel.options[i].value === item.ubicacion) { sel.selectedIndex = i; break; }
+    }
+  }
+}
+
+function abrirMovDesdeTabla(id, descripcion, ubicacion, unidad, stockTotal) {
+  mostrarPanelMovimiento();
+  document.getElementById('mov-buscar-item').value = descripcion;
+  document.getElementById('mov-id-item').value = id;
+  document.getElementById('mov-item-seleccionado').style.display = 'block';
+  document.getElementById('mov-item-nombre').textContent = descripcion;
+  document.getElementById('mov-item-info').textContent = 'Ubicación principal: ' + ubicacion;
+  document.getElementById('mov-item-stock').textContent = stockTotal;
+  document.getElementById('mov-item-unidad').textContent = unidad;
+  document.getElementById('mov-stock-detalle').innerHTML =
+    '<em style="color:#888">Cargando distribución...</em>';
+  // Cargar distribución actualizada desde el servidor
+  google.script.run
+    .withSuccessHandler(items => {
+      const mismasClave = items.filter(i => i.clave === (id.startsWith('STK') ? items.find(x=>x.id===id)?.clave : id));
+      const ubicsHtml = (mismasClave.length ? mismasClave : items.filter(i=>i.id===id))
+        .filter(i => i.stockActual > 0)
+        .map(i => `<span style="margin-right:10px;font-size:12px"><b>${i.ubicacion}</b>: ${i.stockActual} ${unidad}</span>`)
+        .join('') || '<em style="color:#aaa">Sin stock registrado</em>';
+      document.getElementById('mov-stock-detalle').innerHTML = ubicsHtml;
+    })
+    .getStockItems({ busqueda: descripcion.substring(0,15) });
+  // Pre-seleccionar origen
+  const sel = document.getElementById('mov-origen');
+  for (let i=0; i<sel.options.length; i++) {
+    if (sel.options[i].value === ubicacion) { sel.selectedIndex = i; break; }
+  }
+}
+
+function guardarMovimientoStock() {
+  const idItem = document.getElementById('mov-id-item').value;
+  const tipo   = document.getElementById('mov-tipo-actual').value;
+  const cant   = parseFloat(document.getElementById('mov-cantidad').value || 0);
+
+  if (!idItem) { showToast('Selecciona un repuesto de la lista', 'error'); return; }
+  if (!cant || cant <= 0) { showToast('Ingresa una cantidad válida mayor a 0', 'error'); return; }
+  if (tipo==='TRASLADO' && !document.getElementById('mov-destino').value) {
+    showToast('Selecciona la ubicación destino', 'error'); return;
+  }
+
+  const datos = {
+    idItem, tipo, cantidad: cant,
+    ubicacionOrigen:  document.getElementById('mov-origen').value,
+    ubicacionDestino: document.getElementById('mov-destino')?.value || '',
+    motivo:           document.getElementById('mov-motivo').value,
+    otAsociada:       document.getElementById('mov-ot').value,
+    embarcacion:      document.getElementById('mov-embarcacion')?.value || ''
+  };
+
+  const btn = document.getElementById('btn-guardar-mov');
+  btn.disabled = true; btn.textContent = 'Guardando...';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = '💾 Guardar Movimiento';
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(res.mensaje, 'success');
+      limpiarFormMovimiento();
+      // Refrescar tabla de stock
+      google.script.run
+        .withSuccessHandler(items => {
+          APP.data.stock = items;
+          filtrarStock();
+        }).getStockItems({});
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = '💾 Guardar Movimiento';
+      showToast(err.message, 'error');
+    })
+    .registrarMovimientoStock(datos);
+}
+
+// ── Historial colapsable ─────────────────────────────────────
+let _historialCargado = false;
+function toggleHistorialMovs() {
+  const cont = document.getElementById('historial-movimientos-container');
+  const icon = document.getElementById('historial-toggle-icon');
+  if (cont.style.display === 'none') {
+    cont.style.display = 'block';
+    icon.textContent = '▲ Ocultar';
+    if (!_historialCargado) { cargarHistorialMovs(); _historialCargado = true; }
+  } else {
+    cont.style.display = 'none';
+    icon.textContent = '▼ Ver';
+  }
+}
+
+
+// ── Sincronizar nuevos ítems del Excel ───────────────────────
+function sincronizarDesdeExcel() {
+  if (!confirm('¿Sincronizar el catálogo con el Excel actual?\n\nEsto agrega los ítems nuevos que hayas agregado al Excel.\nNo modifica los ítems existentes ni los movimientos.')) return;
+  showToast('Sincronizando con Excel...', 'info');
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.error) { showToast(res.error, 'error'); return; }
+      showToast('Sincronización completada', 'success');
+      renderStock();
+    })
+    .withFailureHandler(err => showToast(err.message, 'error'))
+    .sincronizarCatalogoStock();
+}
+
+function cargarHistorialMovs() {
+  const tabla = document.getElementById('hist-movs-tabla');
+  tabla.innerHTML = '<div style="padding:10px;color:#888">Cargando...</div>';
+  google.script.run
+    .withSuccessHandler(movs => renderHistorialMovs(movs || []))
+    .getMovimientosStock(null);
+}
+
+function renderHistorialMovs(movs) {
+  const filtroUbic = document.getElementById('hist-mov-ubic')?.value || '';
+  const filtroTipo = document.getElementById('hist-mov-tipo')?.value || '';
+  let data = movs;
+  if (filtroUbic) data = data.filter(m => m.origen===filtroUbic || m.destino===filtroUbic);
+  if (filtroTipo) data = data.filter(m => m.tipo===filtroTipo);
+  APP.data.movimientosStock = movs;
+
+  const tabla = document.getElementById('hist-movs-tabla');
+  if (!data.length) {
+    tabla.innerHTML = '<div class="empty-state"><div class="icon">📋</div><div>Sin movimientos registrados</div></div>';
+    return;
+  }
+  const colores = { INGRESO:'#2e7d32', SALIDA:'#e65100', TRASLADO:'#0288d1' };
+  tabla.innerHTML = `<table>
+    <thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Cantidad</th><th>Origen</th><th>Destino</th><th>Motivo</th><th>OT</th><th>Usuario</th></tr></thead>
+    <tbody>${data.slice(0, 100).map(m => `<tr>
+      <td style="white-space:nowrap">${m.fecha}</td>
+      <td><span style="background:${colores[m.tipo]||'#888'};color:white;padding:2px 8px;border-radius:4px;font-size:11px">${m.tipo}</span></td>
+      <td>${m.descripcion}</td>
+      <td style="text-align:center;font-weight:bold">${m.cantidad}</td>
+      <td>${m.origen||'—'}</td>
+      <td>${m.destino||'—'}</td>
+      <td>${m.motivo||'—'}</td>
+      <td>${m.otAsociada||'—'}</td>
+      <td><small style="color:#888">${m.usuario||'—'}</small></td>
+    </tr>`).join('')}
+    </tbody></table>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  DASHBOARD COMBUSTIBLE v3.5
+//  - Selector de año / mes / día
+//  - Consumo del día por embarcación y equipo
+//  - Consumo mensual (12 meses) + comparativo año anterior
+//  - Consumo acumulado por equipo
+//  - Actividades de Flota Marítima Mensual
+//  - Registro de consumo diario por equipo
+// ════════════════════════════════════════════════════════════
+
+const EQUIPOS_COMB_UI = {
+  'GUANAY':      [
+    { nombre:'Motor Principal Babor',      tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Motor Principal Estribor',   tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Grupo Electrógeno Babor',    tipo:'GRUPO_ELECTROGENO' },
+    { nombre:'Grupo Electrógeno Estribor', tipo:'GRUPO_ELECTROGENO' },
+    { nombre:'Grupo Electrógeno Puerto',   tipo:'GRUPO_ELECTROGENO' }
+  ],
+  'PELICANO':    [
+    { nombre:'Motor Principal Babor',      tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Motor Principal Estribor',   tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Grupo Electrógeno Babor',    tipo:'GRUPO_ELECTROGENO' },
+    { nombre:'Grupo Electrógeno Estribor', tipo:'GRUPO_ELECTROGENO' },
+    { nombre:'Grupo Electrógeno Puerto',   tipo:'GRUPO_ELECTROGENO' }
+  ],
+  'DELFIN 11':   [
+    { nombre:'Motor Principal',            tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Grupo Electrógeno Puerto',   tipo:'GRUPO_ELECTROGENO' }
+  ],
+  'DELFIN 12':   [
+    { nombre:'Motor Principal',            tipo:'MOTOR_PRINCIPAL'   },
+    { nombre:'Grupo Electrógeno Puerto',   tipo:'GRUPO_ELECTROGENO' }
+  ],
+  'ISLA CHINCHA':[
+    { nombre:'Grupo Electrógeno Babor',    tipo:'GRUPO_ELECTROGENO' },
+    { nombre:'Grupo Electrógeno Estribor', tipo:'GRUPO_ELECTROGENO' }
+  ]
+};
+
+const ACTIVIDADES_UI = [
+  'FONDEO DE EMBARCACION','OPERACIONES FAENA DE AGUA',
+  'OPERACIONES FAENA PETROLEO','OPERACIONES FAENA VIVERES',
+  'OPERACIONES MANTENIMIENTO','OPERACIONES TRANSP CARGA',
+  'OPERACIONES TRANSP PERSONAL','TRANSPORTE DE GUANO',
+  'EMBARQUE Y DESEMBARQUE DE GUANO','PRUEBAS DE MAR','OTRAS OPERACIONES'
+];
+
+const COLORES_EMB = {
+  'GUANAY':'#1a3a5c','PELICANO':'#0d6efd','DELFIN 11':'#198754',
+  'DELFIN 12':'#20c997','ISLA CHINCHA':'#fd7e14',
+  'CISTERNA 1':'#6f42c1','PANGA':'#dc3545'
+};
+const MESES_LABEL = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+// ── Estado del módulo ────────────────────────────────────────
+let COMB_STATE = {
+  ano: new Date().getFullYear(),
+  mes: new Date().getMonth() + 1,
+  dia: null,
+  tab: 'dashboard',
+  data: null
+};
+
+// ════════════════════════════════════════════════════════════
+//  ENTRY POINT
+// ════════════════════════════════════════════════════════════
+function renderCombustible() {
+  showLoading();
+  COMB_STATE.ano = COMB_STATE.ano || new Date().getFullYear();
+  COMB_STATE.mes = COMB_STATE.mes || new Date().getMonth() + 1;
+  cargarDashboardCombustible();
+}
+
+function cargarDashboardCombustible() {
+  const content = document.getElementById('content');
+  content.innerHTML = buildCombustibleShell();
+  // Cargar datos
+  google.script.run
+    .withSuccessHandler(data => {
+      COMB_STATE.data = data;
+      renderTabCombustible(COMB_STATE.tab);
+    })
+    .withFailureHandler(err => showToast(err.message,'error'))
+    .getDashboardCombustible({ ano: COMB_STATE.ano, mes: COMB_STATE.mes, dia: COMB_STATE.dia });
+}
+
+// ── Shell con selectores y tabs ──────────────────────────────
+function buildCombustibleShell() {
+  const hoy = new Date();
+  const anos = [hoy.getFullYear(), hoy.getFullYear()-1, hoy.getFullYear()-2];
+
+  return `
+  <div style="background:#1a3a5c;color:white;padding:16px 20px;border-radius:12px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="margin:0;font-size:20px">⛽ Control de Combustible</h2>
+        <div style="font-size:13px;opacity:.8;margin-top:2px">Consumo por equipo · Dashboard · Actividades</div>
+      </div>
+      <!-- SELECTORES -->
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="comb-sel-ano" onchange="cambiarFiltrosComb()"
+          style="background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 10px;font-size:13px">
+          ${anos.map(a => `<option value="${a}" ${a===COMB_STATE.ano?'selected':''}>${a}</option>`).join('')}
+        </select>
+        <select id="comb-sel-mes" onchange="cambiarFiltrosComb()"
+          style="background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 10px;font-size:13px">
+          ${MESES_LABEL.map((m,i) => `<option value="${i+1}" ${i+1===COMB_STATE.mes?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <select id="comb-sel-dia" onchange="cambiarFiltrosComb()"
+          style="background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:6px 10px;font-size:13px">
+          <option value="">Todo el mes</option>
+          ${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${COMB_STATE.dia===i+1?'selected':''}>${i+1}</option>`).join('')}
+        </select>
+        <button onclick="cambiarFiltrosComb()"
+          style="background:#f59e0b;color:#1a1a1a;border:none;border-radius:6px;padding:6px 14px;font-weight:bold;cursor:pointer">
+          🔍 Consultar
+        </button>
+      </div>
+    </div>
+    <!-- TABS -->
+    <div style="display:flex;gap:4px;margin-top:14px;border-bottom:1px solid rgba(255,255,255,.2);padding-bottom:0">
+      ${[
+        ['dashboard','📊 Dashboard'],
+        ['registro', '✏️ Registrar Consumo'],
+        ['equipos',  '⚙️ Por Equipo'],
+        ['actividades','📋 Actividades Flota']
+      ].map(([k,l])=>`
+        <button id="tab-${k}" onclick="switchTabComb('${k}')"
+          style="background:${COMB_STATE.tab===k?'white':'transparent'};
+                 color:${COMB_STATE.tab===k?'#1a3a5c':'rgba(255,255,255,.8)'};
+                 border:none;border-radius:6px 6px 0 0;padding:8px 16px;cursor:pointer;
+                 font-size:13px;font-weight:${COMB_STATE.tab===k?'bold':'normal'}">
+          ${l}
+        </button>`).join('')}
+    </div>
+  </div>
+  <!-- CONTENIDO DEL TAB -->
+  <div id="comb-tab-content">
+    <div style="text-align:center;padding:40px;color:#888">
+      <div style="font-size:32px">⛽</div>Cargando datos...
+    </div>
+  </div>`;
+}
+
+function cambiarFiltrosComb() {
+  COMB_STATE.ano = Number(document.getElementById('comb-sel-ano')?.value) || new Date().getFullYear();
+  COMB_STATE.mes = Number(document.getElementById('comb-sel-mes')?.value) || new Date().getMonth()+1;
+  const dv = document.getElementById('comb-sel-dia')?.value;
+  COMB_STATE.dia = dv ? Number(dv) : null;
+  // Reload data
+  document.getElementById('comb-tab-content').innerHTML =
+    '<div style="text-align:center;padding:40px;color:#888">⛽ Cargando...</div>';
+  google.script.run
+    .withSuccessHandler(data => { COMB_STATE.data = data; renderTabCombustible(COMB_STATE.tab); })
+    .withFailureHandler(err => showToast(err.message,'error'))
+    .getDashboardCombustible({ ano:COMB_STATE.ano, mes:COMB_STATE.mes, dia:COMB_STATE.dia });
+}
+
+function switchTabComb(tab) {
+  COMB_STATE.tab = tab;
+  document.querySelectorAll('[id^="tab-"]').forEach(b => {
+    const k = b.id.replace('tab-','');
+    b.style.background = k===tab ? 'white' : 'transparent';
+    b.style.color       = k===tab ? '#1a3a5c' : 'rgba(255,255,255,.8)';
+    b.style.fontWeight  = k===tab ? 'bold' : 'normal';
+  });
+  renderTabCombustible(tab);
+}
+
+function renderTabCombustible(tab) {
+  const d = COMB_STATE.data;
+  const c = document.getElementById('comb-tab-content');
+  if (!c) return;
+  if (!d) { c.innerHTML = '<div style="padding:20px;color:#888">Sin datos. Selecciona un período.</div>'; return; }
+  if      (tab === 'dashboard')    c.innerHTML = buildTabDashboard(d);
+  else if (tab === 'registro')     c.innerHTML = buildTabRegistro();
+  else if (tab === 'equipos')      c.innerHTML = buildTabEquipos(d);
+  else if (tab === 'actividades')  c.innerHTML = buildTabActividades(d);
+}
+
+// ════════════════════════════════════════════════════════════
+//  TAB 1: DASHBOARD
+// ════════════════════════════════════════════════════════════
+function buildTabDashboard(d) {
+  const diaLabel = d.diaSel
+    ? `${d.diaSel} de ${d.mesMesLabel} ${d.anoSel}`
+    : `${d.mesMesLabel} ${d.anoSel}`;
+
+  // Tarjetas resumen
+  const tarjetas = `
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+    <div style="background:#e8f5e9;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:11px;color:#555;margin-bottom:4px">TOTAL ${d.diaSel?'DÍA':'MES'}</div>
+      <div style="font-size:26px;font-weight:bold;color:#2e7d32">${(d.diaSel?d.totalDia:d.totalMes).toFixed(1)}</div>
+      <div style="font-size:11px;color:#888">galones</div>
+    </div>
+    <div style="background:#fff8e1;border-radius:10px;padding:14px;text-align:center;cursor:pointer" onclick="cambiarFiltrosComb()">
+      <div style="font-size:11px;color:#555;margin-bottom:4px">ACTUALIZAR</div>
+      <div style="font-size:26px">🔄</div>
+      <div style="font-size:11px;color:#888">Recargar datos</div>
+    </div>
+    ${d.embs.filter(e=>['GUANAY','PELICANO','DELFIN 11','DELFIN 12','ISLA CHINCHA'].includes(e)).map(emb => {
+      const g = d.diaSel ? (d.consumoDia[emb]?.total||0) : (d.consumoMes[emb]||0);
+      const falta = d.diaSel && !d.consumoDia[emb]?.total;
+      return `
+      <div style="background:${COLORES_EMB[emb]}18;border:2px solid ${falta?'#e53935':COLORES_EMB[emb]+'44'};border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:11px;font-weight:bold;color:${COLORES_EMB[emb]}">${emb}</div>
+        ${falta
+          ? '<div style="font-size:13px;color:#e53935;margin-top:4px">⚠ Sin registro</div>'
+          : `<div style="font-size:22px;font-weight:bold;color:#1a3a5c;margin:4px 0">${g.toFixed(1)}</div>
+             <div style="font-size:11px;color:#888">gal consumidos</div>
+             ${(()=>{
+               const stk = d.stockDia?.[emb] || 0;
+               return stk > 0
+                 ? '<div style="margin-top:4px;font-size:12px;color:#e8a000;font-weight:bold">⛽ Stock: '+stk.toFixed(1)+' gal</div>'
+                 : '';
+             })()}`}
+      </div>`;
+    }).join('')}
+  </div>`;
+
+  // Gráfico de barras mensual (12 meses año actual vs anterior)
+  const maxVal = Math.max(
+    ...d.embs.flatMap(e => [...(d.porMesAno[e]||[]), ...(d.porMesAnt[e]||[])]), 1
+  );
+  const barChart = `
+  <div style="background:white;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h4 style="margin:0">Consumo mensual — ${d.anoSel}</h4>
+      <div style="display:flex;gap:12px;font-size:12px">
+        <span style="display:flex;align-items:center;gap:4px">
+          <span style="width:12px;height:12px;background:#1a3a5c;border-radius:2px;display:inline-block"></span> ${d.anoSel}
+        </span>
+        <span style="display:flex;align-items:center;gap:4px">
+          <span style="width:12px;height:12px;background:#bbb;border-radius:2px;display:inline-block"></span> ${d.anoSel-1}
+        </span>
+      </div>
+    </div>
+    <div style="position:relative;height:140px;padding:0 4px;overflow:hidden">
+      <div style="display:flex;gap:6px;align-items:flex-end;height:120px;position:absolute;bottom:20px;left:4px;right:4px;overflow:hidden">
+        ${MESES_LABEL.map((m,i) => {
+          const tot    = d.embs.reduce((s,e)=>(d.porMesAno[e]?.[i]||0)+s, 0);
+          const totAnt = d.embs.reduce((s,e)=>(d.porMesAnt[e]?.[i]||0)+s, 0);
+          const h1     = Math.min(100, Math.round((tot/maxVal)*100));
+          const h2     = Math.min(100, Math.round((totAnt/maxVal)*100));
+          const active = (i+1) === d.mesSel;
+          return `
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:0;cursor:pointer;min-width:0"
+            onclick="seleccionarMesComb(${i+1})" title="${m}: ${tot.toFixed(0)} gal ${d.anoSel} / ${totAnt.toFixed(0)} gal ${d.anoSel-1}">
+            <div style="width:100%;display:flex;gap:1px;align-items:flex-end;height:100px;overflow:hidden">
+              <div style="flex:1;background:${active?'#f59e0b':'#1a3a5c'};border-radius:2px 2px 0 0;height:${h1}%;min-height:${tot>0?2:0}px;max-height:100px;transition:.3s"></div>
+              <div style="flex:1;background:#bbb;border-radius:2px 2px 0 0;height:${h2}%;min-height:${totAnt>0?2:0}px;max-height:100px"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:6px;position:absolute;bottom:0;left:4px;right:4px">
+        ${MESES_LABEL.map((m,i) => {
+          const active = (i+1) === d.mesSel;
+          return `<div style="flex:1;text-align:center;font-size:9px;color:${active?'#f59e0b':'#888'};font-weight:${active?'bold':'normal'};min-width:0;overflow:hidden">${m}</div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  // Tabla resumen por embarcación
+  const tabla = `
+  <div style="background:white;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+    <h4 style="margin:0 0 12px">Resumen — ${diaLabel}</h4>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#1a3a5c;color:white">
+          <th style="padding:8px 12px;text-align:left">Embarcación</th>
+          <th style="padding:8px;text-align:center">Motor Principal</th>
+          <th style="padding:8px;text-align:center">Generadores</th>
+          <th style="padding:8px;text-align:center">Total ${d.diaSel?'Día':'Mes'}</th>
+          <th style="padding:8px;text-align:center">Acumulado Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${['GUANAY','PELICANO','DELFIN 11','DELFIN 12','ISLA CHINCHA'].map((emb,i) => {
+          const cd   = d.consumoDia[emb]  || {};
+          const gMes = d.consumoMes[emb]  || 0;
+          const gAcum= d.acumulado[emb]   || 0;
+          const gDia = cd.total           || 0;
+          const gMot = cd.motorPrincipal  || 0;
+          const gGen = cd.generadores     || 0;
+          const val  = d.diaSel ? gDia : gMes;
+          return `<tr style="background:${i%2?'#f9f9f9':'white'};border-bottom:1px solid #eee">
+            <td style="padding:8px 12px;font-weight:bold;color:${COLORES_EMB[emb]}">${emb}</td>
+            <td style="padding:8px;text-align:center">${gMot.toFixed(1)}</td>
+            <td style="padding:8px;text-align:center">${gGen.toFixed(1)}</td>
+            <td style="padding:8px;text-align:center;font-weight:bold">${val.toFixed(1)}</td>
+            <td style="padding:8px;text-align:center;color:#888">${gAcum.toFixed(1)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+
+  return tarjetas + barChart + tabla;
+}
+
+function seleccionarMesComb(mes) {
+  COMB_STATE.mes = mes;
+  COMB_STATE.dia = null;
+  const sel = document.getElementById('comb-sel-mes');
+  if (sel) sel.value = mes;
+  const selDia = document.getElementById('comb-sel-dia');
+  if (selDia) selDia.value = '';
+  cambiarFiltrosComb();
+}
+
+// ════════════════════════════════════════════════════════════
+//  TAB 2: REGISTRAR CONSUMO DIARIO
+// ════════════════════════════════════════════════════════════
+function buildTabRegistro() {
+  const hoy = new Date().toISOString().split('T')[0];
+  const embs = Object.keys(EQUIPOS_COMB_UI);
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <!-- Formulario -->
+    <div style="background:white;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+      <h4 style="margin:0 0 16px;color:#1a3a5c">✏️ Registrar Consumo del Día</h4>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:bold;color:#555">Embarcación</label>
+        <select id="reg-emb" onchange="cargarEquiposRegistro()"
+          style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+          <option value="">— Seleccionar —</option>
+          ${embs.map(e=>`<option>${e}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;font-weight:bold;color:#555">Fecha</label>
+        <input type="date" id="reg-fecha" value="${hoy}"
+          style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box">
+      </div>
+      <div id="reg-equipos-container"></div>
+    </div>
+    <!-- Último registro -->
+    <div style="background:white;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+      <h4 style="margin:0 0 16px;color:#1a3a5c">📅 Registros Recientes</h4>
+      <div id="reg-historial">
+        <em style="color:#aaa;font-size:13px">Selecciona una embarcación para ver registros recientes</em>
+      </div>
+    </div>
+  </div>`;
+}
+
+function cargarEquiposRegistro() {
+  const emb     = document.getElementById('reg-emb')?.value;
+  const cont    = document.getElementById('reg-equipos-container');
+  if (!emb || !cont) return;
+  const equipos = EQUIPOS_COMB_UI[emb] || [];
+
+  cont.innerHTML = `
+    <div style="margin-bottom:8px">
+      <label style="font-size:12px;font-weight:bold;color:#555">Actividad principal del día</label>
+      <select id="reg-actividad"
+        style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+        <option value="">— Sin especificar —</option>
+        ${ACTIVIDADES_UI.map(a=>`<option>${a}</option>`).join('')}
+      </select>
+    </div>
+    <h5 style="color:#1a3a5c;margin:16px 0 8px;font-size:13px">Galones por equipo</h5>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      ${equipos.map((eq,i) => `
+        <div style="background:#f8f9fa;border-radius:8px;padding:10px">
+          <div style="font-size:11px;font-weight:bold;color:${eq.tipo==='MOTOR_PRINCIPAL'?'#1a3a5c':'#198754'};margin-bottom:6px">
+            ${eq.tipo==='MOTOR_PRINCIPAL'?'⚙️':'⚡'} ${eq.nombre}
+          </div>
+          <div style="display:grid;grid-template-columns:2fr 1.5fr;gap:3px">
+            <input type="number" step="0.1" min="0" id="reg-gal-${i}"
+              placeholder="Galones consumidos"
+              style="padding:5px;border:1px solid #ddd;border-radius:4px;font-size:12px"
+              oninput="actualizarTotalRegistro()">
+            <input type="number" step="0.1" min="0" id="reg-hor-${i}"
+              placeholder="Horómetro"
+              style="padding:5px;border:1px solid #ddd;border-radius:4px;font-size:12px"
+              title="Horómetro actual (horas)">
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:2px">
+            <span style="font-size:9px;color:#888">Galones consumidos</span>
+            <span style="font-size:9px;color:#888">Horómetro (hrs)</span>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div style="background:#1a3a5c;color:white;padding:10px 14px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:13px">Total del día:</span>
+      <strong id="reg-total" style="font-size:20px">0.0 gal</strong>
+    </div>
+    <div style="background:#fff8e1;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <label style="font-size:12px;font-weight:bold;color:#6d4c00">⛽ Stock actual de la embarcación (galones)</label>
+        <input type="number" step="0.1" min="0" id="reg-stock-emb"
+          placeholder="Ej: 450.0"
+          style="width:100%;padding:7px 10px;border:2px solid #ffc107;border-radius:6px;margin-top:4px;font-size:14px;font-weight:bold;background:#fffde7;box-sizing:border-box">
+      </div>
+      <div style="font-size:28px">🛢️</div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:bold;color:#555">Bitácora General</label>
+      <textarea id="reg-obs" rows="2"
+        style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box;resize:vertical;font-size:13px"
+        placeholder="Anotaciones del día, incidencias, condiciones de navegación..."></textarea>
+    </div>
+    <button onclick="guardarRegistroCombustible()"
+      style="width:100%;padding:12px;background:#1a3a5c;color:white;border:none;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer">
+      💾 Guardar Consumo del Día
+    </button>`;
+
+  // Cargar historial reciente
+  cargarHistorialRegistro(emb);
+}
+
+function actualizarTotalRegistro() {
+  const emb  = document.getElementById('reg-emb')?.value;
+  const eqs  = EQUIPOS_COMB_UI[emb] || [];
+  const tot  = eqs.reduce((s,_,i) => s+(parseFloat(document.getElementById(`reg-gal-${i}`)?.value||0)),0);
+  const el   = document.getElementById('reg-total');
+  if (el) el.textContent = tot.toFixed(1) + ' gal';
+}
+
+function guardarRegistroCombustible() {
+  const emb      = document.getElementById('reg-emb')?.value;
+  const fecha    = document.getElementById('reg-fecha')?.value;
+  const actividad= document.getElementById('reg-actividad')?.value || '';
+  const obs      = document.getElementById('reg-obs')?.value || '';
+  const stockEmb = parseFloat(document.getElementById('reg-stock-emb')?.value || 0);
+
+  if (!emb)   { showToast('Selecciona una embarcación','error'); return; }
+  if (!fecha) { showToast('Selecciona la fecha','error'); return; }
+
+  const equipos   = EQUIPOS_COMB_UI[emb] || [];
+  const registros = [];
+
+  equipos.forEach((eq, i) => {
+    const gal = parseFloat(document.getElementById(`reg-gal-${i}`)?.value || 0);
+    const hor = parseFloat(document.getElementById(`reg-hor-${i}`)?.value || 0);
+    if (gal > 0 || hor > 0)
+      registros.push({
+        fecha, embarcacion: emb,
+        equipoNombre: eq.nombre, tipoEquipo: eq.tipo,
+        galones: gal, horometro: hor,
+        // Stock de la embarcación: solo en el primer equipo registrado
+        stockActual: registros.length === 0 ? stockEmb : 0,
+        actividad, observacion: obs
+      });
+  });
+
+  // Si solo ingresaron stock sin consumo de equipos, registrar igualmente
+  if (!registros.length && stockEmb > 0) {
+    registros.push({
+      fecha, embarcacion: emb,
+      equipoNombre: 'EMBARCACION', tipoEquipo: 'STOCK',
+      galones: 0, horometro: 0, stockActual: stockEmb,
+      actividad, observacion: obs
+    });
+  }
+
+  if (!registros.length) {
+    showToast('Ingresa al menos un galón, horómetro o el stock actual','error');
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(`✅ Consumo registrado para ${emb}`, 'success');
+      // Limpiar campos de stock
+      const stkEl = document.getElementById('reg-stock-emb');
+      if (stkEl) stkEl.value = '';
+      actualizarTotalRegistro();
+      cargarHistorialRegistro(emb);
+      // Refrescar datos del dashboard en segundo plano
+      google.script.run
+        .withSuccessHandler(data => { COMB_STATE.data = data; })
+        .getDashboardCombustible({ ano: COMB_STATE.ano, mes: COMB_STATE.mes, dia: COMB_STATE.dia });
+    })
+    .withFailureHandler(err => showToast(err.message, 'error'))
+    .registrarCombustibleDiario(registros);
+}
+
+
+function cargarHistorialRegistro(emb) {
+  const el = document.getElementById('reg-historial');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:12px;text-align:center;color:#aaa"><div style="font-size:20px">⏳</div>Cargando registros...</div>';
+  google.script.run
+    .withSuccessHandler(data => {
+      const filtrado = (data||[]).filter(r => (r.EMBARCACION||'') === emb);
+      if (!filtrado.length) {
+        el.innerHTML = '<div style="padding:20px;text-align:center;color:#aaa"><div style="font-size:24px">📋</div><br>Sin registros para '+emb+'</div>';
+        return;
+      }
+
+      // Agrupar por fecha y calcular totales + stock + horómetro por equipo
+      const porFecha = {};
+      filtrado.forEach(r => {
+        const rawFecha = r.FECHA || r.fecha || '';
+        const k = rawFecha instanceof Date
+          ? rawFecha.toISOString().substring(0,10)
+          : String(rawFecha).substring(0,10);
+        if (!k || k === 'Invalid Date') return;
+        if (!porFecha[k]) porFecha[k] = { fecha:k, totalGal:0, equipos:[] };
+        porFecha[k].totalGal += Number(r.GALONES||0);
+        porFecha[k].equipos.push({
+          nombre:  r.EQUIPO       || '—',
+          tipo:    r.TIPO_EQUIPO  || '',
+          gal:     Number(r.GALONES     || 0),
+          hor:     Number(r.HOROMETRO   || 0),
+          stk:     Number(r.STOCK_ACTUAL|| 0),
+          act:     r.ACTIVIDAD    || '',
+          obs:     r.OBSERVACION  || ''
+        });
+      });
+
+      // Ordenar fechas desc y tomar las 5 más recientes
+      const fechas = Object.keys(porFecha).sort().reverse().slice(0,5);
+
+      // Resaltar el día anterior
+      const ayer = new Date(); ayer.setDate(ayer.getDate()-1);
+      const ayerStr = ayer.toISOString().substring(0,10);
+
+      el.innerHTML = fechas.map((k, idx) => {
+        const f = porFecha[k];
+        const esAyer = k === ayerStr;
+        return `
+        <div style="border-radius:8px;margin-bottom:8px;overflow:hidden;border:${esAyer?'2px solid #1a3a5c':'1px solid #eee'}">
+          <!-- Cabecera fecha -->
+          <div style="background:${esAyer?'#1a3a5c':'#f5f5f5'};color:${esAyer?'white':'#333'};
+                      padding:8px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer"
+               onclick="toggleDiaHistorial('hist-${idx}')">
+            <span style="font-size:13px;font-weight:bold">
+              ${esAyer?'📅 Ayer — ':''}${k}
+              ${esAyer?'<span style="font-size:10px;background:#f59e0b;color:#000;padding:1px 6px;border-radius:8px;margin-left:6px">DÍA ANTERIOR</span>':''}
+            </span>
+            <span style="font-size:14px;font-weight:bold">${f.totalGal.toFixed(1)} gal ▾</span>
+          </div>
+          <!-- Detalle equipos -->
+          <div id="hist-${idx}" style="display:${esAyer?'block':'none'};padding:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead>
+                <tr style="background:#f0f4f8">
+                  <th style="padding:4px 6px;text-align:left">Equipo</th>
+                  <th style="padding:4px;text-align:center">Gal</th>
+                  <th style="padding:4px;text-align:center">Horóm.</th>
+                  <th style="padding:4px;text-align:center;color:#e8a000">Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${f.equipos.map(e => `
+                  <tr style="border-bottom:1px solid #f5f5f5">
+                    <td style="padding:4px 6px;color:${e.tipo==='MOTOR_PRINCIPAL'?'#1a3a5c':'#198754'}">
+                      ${e.tipo==='MOTOR_PRINCIPAL'?'⚙️':'⚡'} ${e.nombre}
+                    </td>
+                    <td style="padding:4px;text-align:center;font-weight:bold">${e.gal.toFixed(1)}</td>
+                    <td style="padding:4px;text-align:center;color:#555">${e.hor>0?e.hor.toFixed(1):'—'}</td>
+                    <td style="padding:4px;text-align:center;color:#e8a000;font-weight:bold">${e.stk>0?e.stk.toFixed(1):'—'}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+            ${f.equipos[0]?.act ? `<div style="margin-top:6px;font-size:11px;color:#555">📌 ${f.equipos[0].act}</div>` : ''}
+            ${f.equipos[0]?.obs ? `<div style="margin-top:3px;font-size:11px;color:#888">📝 ${f.equipos[0].obs}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('') || '<div style="padding:16px;text-align:center;color:#aaa">Sin registros</div>';
+    })
+    .withFailureHandler(err => {
+      const el2 = document.getElementById('reg-historial');
+      if (el2) el2.innerHTML = '<div style="color:#e53935;font-size:12px;padding:8px">Error al cargar: '+err.message+'</div>';
+    })
+    .getCombustibleDiario({ embarcacion: emb });
+}
+
+function toggleDiaHistorial(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// getCombustibleDiario: definida en Code.gs (lectura en tiempo real)
+
+// ════════════════════════════════════════════════════════════
+//  TAB 3: CONSUMO ACUMULADO POR EQUIPO
+// ════════════════════════════════════════════════════════════
+function buildTabEquipos(d) {
+  const embs = ['GUANAY','PELICANO','DELFIN 11','DELFIN 12','ISLA CHINCHA'];
+  return `
+  <div style="display:flex;flex-direction:column;gap:16px">
+    ${embs.map(emb => {
+      const equiposData = d.porEquipo.filter(e => e.emb === emb);
+      if (!equiposData.length) return `
+        <div style="background:white;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+          <h4 style="margin:0 0 8px;color:${COLORES_EMB[emb]}">${emb}</h4>
+          <em style="color:#aaa;font-size:13px">Sin registros de consumo</em>
+        </div>`;
+      const totalEmb = equiposData.reduce((s,e)=>s+e.gal,0);
+      const maxGal   = Math.max(...equiposData.map(e=>e.gal), 1);
+      return `
+      <div style="background:white;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h4 style="margin:0;color:${COLORES_EMB[emb]}">${emb}</h4>
+          <span style="background:${COLORES_EMB[emb]};color:white;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:bold">
+            ${totalEmb.toFixed(1)} gal acumulado
+          </span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#f5f5f5">
+              <th style="padding:8px 10px;text-align:left">Equipo</th>
+              <th style="padding:8px;text-align:center">Galones</th>
+              <th style="padding:8px;text-align:center">Horas</th>
+              <th style="padding:8px;text-align:center">Gal/Hr</th>
+              <th style="padding:8px;text-align:left;width:35%">Distribución</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${equiposData.map((e,i) => {
+              const galHr = e.hor > 0 ? (e.gal/e.hor).toFixed(2) : '—';
+              const pct   = Math.round(e.gal / maxGal * 100);
+              const color = e.tipo==='MOTOR_PRINCIPAL' ? '#1a3a5c' : '#198754';
+              return `<tr style="border-bottom:1px solid #f0f0f0">
+                <td style="padding:8px 10px">
+                  <span style="font-size:10px;color:${color};margin-right:4px">${e.tipo==='MOTOR_PRINCIPAL'?'⚙️':'⚡'}</span>
+                  ${e.eq}
+                </td>
+                <td style="padding:8px;text-align:center;font-weight:bold">${e.gal.toFixed(1)}</td>
+                <td style="padding:8px;text-align:center">${e.hor.toFixed(1)}</td>
+                <td style="padding:8px;text-align:center">${galHr}</td>
+                <td style="padding:8px">
+                  <div style="background:#eee;border-radius:4px;height:8px;overflow:hidden">
+                    <div style="background:${color};height:100%;width:${pct}%;border-radius:4px;transition:.3s"></div>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  TAB 4: ACTIVIDADES DE FLOTA MARÍTIMA MENSUAL
+// ════════════════════════════════════════════════════════════
+function buildTabActividades(d) {
+  const embs = ['PELICANO','GUANAY','ISLA CHINCHA','DELFIN 11','DELFIN 12','CISTERNA 1','PANGA'];
+
+  // Tabla de actividades existentes
+  const actExistentes = d.actividadesMes || [];
+
+  // Agrupar por actividad para mostrar totales
+  const porActividad = {};
+  actExistentes.forEach(r => {
+    const act = r.ACTIVIDAD;
+    const emb = r.EMBARCACION;
+    if (!act || !emb) return;
+    if (!porActividad[act]) porActividad[act] = {};
+    porActividad[act][emb] = {
+      horasNav: Number(r.HORAS_NAV||0),
+      galones:  Number(r.GALONES||0),
+      horasElec:Number(r.HORAS_ELEC||0)
+    };
+  });
+
+  return `
+  <div style="display:flex;flex-direction:column;gap:16px">
+
+    <!-- RESUMEN ACTIVIDADES DEL MES -->
+    <div style="background:white;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h4 style="margin:0;color:#1a3a5c">
+          📋 Actividades de Flota Marítima — ${d.mesMesLabel} ${d.anoSel}
+        </h4>
+        <button onclick="mostrarFormActividad()"
+          style="background:#1a3a5c;color:white;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px">
+          + Registrar Actividad
+        </button>
+      </div>
+
+      ${actExistentes.length === 0
+        ? '<div style="text-align:center;padding:30px;color:#aaa"><div style="font-size:32px">📋</div>Sin actividades registradas para este período</div>'
+        : `<div style="overflow-x:auto">
+           <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px">
+             <thead>
+               <tr style="background:#1a3a5c;color:white">
+                 <th style="padding:8px 12px;text-align:left">Actividad</th>
+                 ${embs.map(e=>`<th style="padding:8px;text-align:center;white-space:nowrap">${e.replace('DELFIN','D.')}</th>`).join('')}
+                 <th style="padding:8px;text-align:center">Total Gal</th>
+               </tr>
+             </thead>
+             <tbody>
+               ${ACTIVIDADES_UI.map((act,i) => {
+                 const row = porActividad[act] || {};
+                 const hasData = embs.some(e => row[e]);
+                 if (!hasData) return '';
+                 const totalGal = embs.reduce((s,e)=>s+(row[e]?.galones||0),0);
+                 return `<tr style="background:${i%2?'#f9f9f9':'white'};border-bottom:1px solid #eee">
+                   <td style="padding:8px 12px;font-weight:500">${act}</td>
+                   ${embs.map(e => `
+                     <td style="padding:6px 8px;text-align:center">
+                       ${row[e] ? `
+                         <div style="font-weight:bold;color:#1a3a5c">${row[e].galones.toFixed(1)}</div>
+                         <div style="font-size:10px;color:#888">${row[e].horasNav.toFixed(1)}h</div>
+                       ` : '<span style="color:#ddd">—</span>'}
+                     </td>`).join('')}
+                   <td style="padding:8px;text-align:center;font-weight:bold;color:#e65100">${totalGal.toFixed(1)}</td>
+                 </tr>`;
+               }).filter(Boolean).join('')}
+               <!-- FILA TOTALES -->
+               <tr style="background:#1a3a5c;color:white;font-weight:bold">
+                 <td style="padding:8px 12px">TOTAL</td>
+                 ${embs.map(e => {
+                   const tot = actExistentes.filter(r=>r.EMBARCACION===e).reduce((s,r)=>s+Number(r.GALONES||0),0);
+                   return `<td style="padding:8px;text-align:center">${tot.toFixed(1)}</td>`;
+                 }).join('')}
+                 <td style="padding:8px;text-align:center">${actExistentes.reduce((s,r)=>s+Number(r.GALONES||0),0).toFixed(1)}</td>
+               </tr>
+             </tbody>
+           </table>
+           </div>`}
+    </div>
+
+    <!-- FORMULARIO ACTIVIDAD (oculto) -->
+    <div id="form-actividad" style="display:none;background:white;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+      <h4 style="margin:0 0 16px;color:#1a3a5c">Registrar Actividad de Flota</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Embarcación</label>
+          <select id="act-emb"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+            ${embs.map(e=>`<option>${e}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Actividad</label>
+          <select id="act-tipo"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+            ${ACTIVIDADES_UI.map(a=>`<option>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Mes / Año</label>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <select id="act-mes" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:6px">
+              ${MESES_LABEL.map((m,i)=>`<option value="${i+1}" ${i+1===d.mesSel?'selected':''}>${m}</option>`).join('')}
+            </select>
+            <input type="number" id="act-ano" value="${d.anoSel}"
+              style="width:70px;padding:8px;border:1px solid #ddd;border-radius:6px">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Horas de navegación</label>
+          <input type="number" step="0.5" min="0" id="act-horas"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Galones consumidos</label>
+          <input type="number" step="0.1" min="0" id="act-gal"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:bold;color:#555">Horas eléctricas</label>
+          <input type="number" step="0.5" min="0" id="act-helec"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box">
+        </div>
+        <div style="grid-column:1/-1">
+          <label style="font-size:12px;font-weight:bold;color:#555">Observaciones</label>
+          <textarea id="act-obs" rows="2"
+            style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box;font-size:13px;resize:vertical"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="ocultarFormActividad()"
+          style="padding:8px 20px;border:1px solid #ddd;border-radius:6px;background:white;cursor:pointer">
+          Cancelar
+        </button>
+        <button onclick="guardarActividadFlota()"
+          style="padding:8px 20px;background:#1a3a5c;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:bold">
+          💾 Guardar Actividad
+        </button>
+      </div>
+    </div>
+
+  </div>`;
+}
+
+function mostrarFormActividad() {
+  const el = document.getElementById('form-actividad');
+  if (el) { el.style.display = 'block'; el.scrollIntoView({behavior:'smooth'}); }
+}
+function ocultarFormActividad() {
+  const el = document.getElementById('form-actividad');
+  if (el) el.style.display = 'none';
+}
+
+function guardarActividadFlota() {
+  const datos = {
+    embarcacion: document.getElementById('act-emb')?.value,
+    actividad:   document.getElementById('act-tipo')?.value,
+    mes:         document.getElementById('act-mes')?.value,
+    ano:         document.getElementById('act-ano')?.value,
+    horasNav:    document.getElementById('act-horas')?.value || 0,
+    galones:     document.getElementById('act-gal')?.value   || 0,
+    horasElec:   document.getElementById('act-helec')?.value || 0,
+    observacion: document.getElementById('act-obs')?.value   || ''
+  };
+  if (!datos.embarcacion) { showToast('Selecciona la embarcación','error'); return; }
+  if (!datos.actividad)   { showToast('Selecciona la actividad','error'); return; }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.error) { showToast(res.error,'error'); return; }
+      showToast('✅ Actividad registrada correctamente','success');
+      ocultarFormActividad();
+      cambiarFiltrosComb();
+    })
+    .withFailureHandler(err => showToast(err.message,'error'))
+    .registrarActividadFlota(datos);
+}
+
+// ─── CERTIFICADOS ────────────────────────────────────────────
+function renderCertificados() {
+  google.script.run
+    .withSuccessHandler(embs => {
+      APP.data.embarcaciones = embs || [];
+      google.script.run
+        .withSuccessHandler(certs => {
+          APP.data.certificados = certs || [];
+          buildCertificadosPage();
+        }).getCertificados();
+    }).getEmbarcaciones();
+}
+
+function buildCertificadosPage() {
+  const content = document.getElementById('content');
+  const vencidos = APP.data.certificados.filter(c => c.ESTADO_ALERTA === 'VENCIDO').length;
+  const criticos = APP.data.certificados.filter(c => c.ESTADO_ALERTA === 'CRITICO').length;
+
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>📜 Certificados Estatutarios</h2>
+      <button class="btn btn-primary" onclick="abrirFormCertificado()">+ Nuevo Certificado</button>
+    </div>
+    <div class="cards-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+      ${statCard('📜','Total Certs.', APP.data.certificados.length, 'Registrados', '')}
+      ${statCard('✅','Vigentes', APP.data.certificados.filter(c=>c.ESTADO_ALERTA==='VIGENTE').length, 'En regla', 'success')}
+      ${statCard('🟠','Por vencer', criticos, 'Próx. 30 días', 'warning')}
+      ${statCard('🔴','Vencidos', vencidos, '¡Acción inmediata!', 'danger')}
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap">
+          ${buildTablaCertificados(APP.data.certificados)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildTablaCertificados(data) {
+  if (!data.length) return '<div class="empty-state"><div class="icon">📜</div><div>No hay certificados registrados</div></div>';
+  return `<table>
+    <thead><tr><th>Embarcación</th><th>Tipo Certificado</th><th>N° Cert.</th><th>Organismo</th><th>Emisión</th><th>Vencimiento</th><th>Días Rest.</th><th>Estado</th></tr></thead>
+    <tbody>
+      ${data.sort((a,b)=>(a.DIAS_RESTANTES||9999)-(b.DIAS_RESTANTES||9999)).map(c => `
+        <tr>
+          <td>${c.EMBARCACION}</td>
+          <td><strong>${c.TIPO_CERTIFICADO}</strong></td>
+          <td><code>${c.NUMERO||'-'}</code></td>
+          <td>${c.ORGANISMO_EMISOR||'-'}</td>
+          <td>${c.FECHA_EMISION||'-'}</td>
+          <td>${c.FECHA_VENCIMIENTO||'-'}</td>
+          <td class="${c.ESTADO_ALERTA==='VENCIDO'?'criticidad-crit':c.ESTADO_ALERTA==='CRITICO'?'criticidad-high':c.ESTADO_ALERTA==='ALERTA'?'criticidad-med':''}">${c.DIAS_RESTANTES!==undefined?(c.DIAS_RESTANTES<0?'VENCIDO':c.DIAS_RESTANTES+' días'):'-'}</td>
+          <td><span class="badge ${c.ESTADO_ALERTA==='VIGENTE'?'badge-success':c.ESTADO_ALERTA==='ALERTA'?'badge-info':c.ESTADO_ALERTA==='CRITICO'?'badge-warning':'badge-danger'}">${c.ESTADO_ALERTA||'VIGENTE'}</span></td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function abrirFormCertificado() {
+  const embs = APP.data.embarcaciones.map(e => `<option value="${e.ID}" data-nombre="${e.NOMBRE}">${e.NOMBRE}</option>`).join('');
+  const tiposCert = ['Certificado de Matrícula','Certificado de Seguridad de Buques','Certificado de Línea de Carga','Certificado de Prevención de Contaminación','Certificado Rádioeléctrico','Certificado de Gestión de Seguridad','Certificado ISPS','Licencia Inspección Anual','Certificado Francobordo','Inspección de Casco'];
+
+  openModal('📜 Registrar Certificado', `
+    <div class="form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Embarcación <span>*</span></label>
+        <select class="form-control" id="crt_emb">${embs}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo de Certificado <span>*</span></label>
+        <select class="form-control" id="crt_tipo">
+          ${tiposCert.map(t=>`<option>${t}</option>`).join('')}
+          <option value="OTRO">Otro...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Número de Certificado</label>
+        <input class="form-control" id="crt_num" placeholder="Nro. de certificado">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Organismo Emisor</label>
+        <input class="form-control" id="crt_org" placeholder="DICAPI, Lloyd's, etc.">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fecha de Emisión</label>
+        <input class="form-control" type="date" id="crt_emision">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fecha de Vencimiento <span>*</span></label>
+        <input class="form-control" type="date" id="crt_venc">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Días de Alerta Previa</label>
+        <input class="form-control" type="number" id="crt_alerta" value="30">
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Observaciones</label>
+        <textarea class="form-control" id="crt_obs" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarCertificadoForm()">💾 Guardar</button>
+    </div>
+  `);
+}
+
+function guardarCertificadoForm() {
+  const embEl = document.getElementById('crt_emb');
+  const emb = APP.data.embarcaciones.find(e => e.ID === embEl.value);
+  const datos = {
+    ID_EMBARCACION: embEl.value,
+    EMBARCACION: emb ? emb.NOMBRE : embEl.options[embEl.selectedIndex].text,
+    TIPO_CERTIFICADO: document.getElementById('crt_tipo').value,
+    NUMERO: document.getElementById('crt_num').value,
+    ORGANISMO_EMISOR: document.getElementById('crt_org').value,
+    FECHA_EMISION: document.getElementById('crt_emision').value,
+    FECHA_VENCIMIENTO: document.getElementById('crt_venc').value,
+    DIAS_ALERTA: document.getElementById('crt_alerta').value,
+    OBSERVACIONES: document.getElementById('crt_obs').value
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderCertificados(); }
+      else showToast(res.error, 'error');
+    }).guardarCertificado(datos);
+}
+
+// ─── PLAN DE MANTENIMIENTO ───────────────────────────────────
+function renderPlanMant() {
+  google.script.run
+    .withSuccessHandler(embs => {
+      APP.data.embarcaciones = embs || [];
+      google.script.run
+        .withSuccessHandler(eqs => {
+          APP.data.equipos = eqs || [];
+          google.script.run
+            .withSuccessHandler(planes => {
+              APP.data.planes = planes || [];
+              buildPlanMantPage();
+            }).getPlanesMant();
+        }).getEquipos(null);
+    }).getEmbarcaciones();
+}
+
+function buildPlanMantPage() {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="page-header">
+      <h2>📅 Plan de Mantenimiento</h2>
+      <button class="btn btn-primary" onclick="abrirFormPlan()">+ Nuevo Plan</button>
+    </div>
+    <div class="section">
+      <div class="section-body">
+        <div class="table-wrap">
+          ${buildTablaPlan(APP.data.planes)}
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildTablaPlan(data) {
+  if (!data.length) return '<div class="empty-state"><div class="icon">📅</div><div>No hay planes de mantenimiento. Crea el primero.</div></div>';
+  return `<table>
+    <thead><tr><th>Embarcación</th><th>Equipo</th><th>Acción</th><th>Frecuencia</th><th>Tipo Frec.</th><th>Próx. Ejec.</th><th>Última Ejec.</th><th>Estado</th></tr></thead>
+    <tbody>
+      ${data.map(p => `
+        <tr>
+          <td>${p.ID_EMBARCACION}</td>
+          <td>${p.EQUIPO}</td>
+          <td><span class="badge badge-info">${p.ACCION}</span></td>
+          <td>${p.FRECUENCIA}</td>
+          <td>${p.TIPO_FRECUENCIA}</td>
+          <td>${p.PROXIMA_EJECUCION||'-'}</td>
+          <td>${p.ULTIMA_EJECUCION||'-'}</td>
+          <td><span class="badge ${p.ESTADO==='EJECUTADO'?'badge-success':'badge-warning'}">${p.ESTADO}</span></td>
+        </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function abrirFormPlan() {
+  const embs = APP.data.embarcaciones.map(e => `<option value="${e.ID}" data-nombre="${e.NOMBRE}">${e.NOMBRE}</option>`).join('');
+  openModal('📅 Crear Plan de Mantenimiento', `
+    <div class="form-grid-2">
+      <div class="form-group">
+        <label class="form-label">Embarcación <span>*</span></label>
+        <select class="form-control" id="pl_emb" onchange="cargarEquiposPlan()">${embs}</select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Equipo <span>*</span></label>
+        <select class="form-control" id="pl_equipo">
+          <option value="">Seleccionar embarcación...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Acción de Mantenimiento</label>
+        <select class="form-control" id="pl_accion">
+          <option value="IV">IV - Inspección Visual</option>
+          <option value="IM">IM - Inspección Manual</option>
+          <option value="CF">CF - Cambio de Filtros</option>
+          <option value="MP">MP - Mant. Preventivo</option>
+          <option value="SOV">SOV - Semi Overhaul</option>
+          <option value="OVT">OVT - Over Haul Total</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Frecuencia</label>
+        <input class="form-control" type="number" id="pl_frec" value="250" placeholder="250, 500, 1000...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo de Frecuencia</label>
+        <select class="form-control" id="pl_tipo_frec">
+          <option value="HORAS">HORAS</option>
+          <option value="DIAS">DÍAS</option>
+          <option value="SEMANAS">SEMANAS</option>
+          <option value="MESES">MESES</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Horas Base</label>
+        <input class="form-control" type="number" id="pl_horas_base" value="0">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Próxima Ejecución</label>
+        <input class="form-control" type="date" id="pl_prox">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Responsable</label>
+        <input class="form-control" id="pl_resp" placeholder="Técnico/Jefe responsable">
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Descripción</label>
+        <textarea class="form-control" id="pl_desc" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarPlanForm()">💾 Crear Plan</button>
+    </div>
+  `);
+}
+
+function cargarEquiposPlan() {
+  const embId = document.getElementById('pl_emb').value;
+  const equipos = APP.data.equipos.filter(e => e.ID_EMBARCACION === embId);
+  const select = document.getElementById('pl_equipo');
+  select.innerHTML = '<option value="">Sin equipo específico</option>' +
+    equipos.map(e => `<option value="${e.ID_EQUIPO}" data-nombre="${e.NOMBRE_EQUIPO}">${e.NOMBRE_EQUIPO}</option>`).join('');
+}
+
+function guardarPlanForm() {
+  const embEl = document.getElementById('pl_emb');
+  const eqEl = document.getElementById('pl_equipo');
+  const datos = {
+    ID_EMBARCACION: embEl.value,
+    ID_EQUIPO: eqEl.value,
+    EQUIPO: eqEl.value ? eqEl.options[eqEl.selectedIndex].text : 'General',
+    ACCION: document.getElementById('pl_accion').value,
+    FRECUENCIA: document.getElementById('pl_frec').value,
+    TIPO_FRECUENCIA: document.getElementById('pl_tipo_frec').value,
+    HORAS_BASE: document.getElementById('pl_horas_base').value,
+    PROXIMA_EJECUCION: document.getElementById('pl_prox').value,
+    RESPONSABLE: document.getElementById('pl_resp').value,
+    DESCRIPCION: document.getElementById('pl_desc').value
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderPlanMant(); }
+      else showToast(res.error, 'error');
+    }).guardarPlanMant(datos);
+}
+
+// ─── ALERTAS ─────────────────────────────────────────────────
+function renderAlertas() {
+  const alertas = APP.data.alertas || [];
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="page-header"><h2>⚡ Alertas del Sistema</h2></div>
+    ${alertas.length ? `
+      <div class="section">
+        <div class="section-body">
+          ${alertas.map(a => `
+            <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;margin-bottom:8px;background:${a.tipo==='CRITICO'?'#ffebee':'#fff3e0'};border-left:4px solid ${a.tipo==='CRITICO'?'var(--danger)':'var(--warning)'}">
+              <span style="font-size:20px">${a.tipo==='CRITICO'?'🔴':'🟡'}</span>
+              <div style="flex:1">
+                <div style="font-weight:700;color:${a.tipo==='CRITICO'?'var(--danger)':'var(--warning)'}">${a.tipo}</div>
+                <div>${a.mensaje}</div>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="showPage('${a.modulo}')">Ver →</button>
+            </div>`).join('')}
+        </div>
+      </div>` : `<div class="empty-state"><div class="icon">✅</div><div>No hay alertas activas</div></div>`}`;
+}
+
+// ─── UTILIDADES ──────────────────────────────────────────────
+function criticidadClass(val) {
+  const v = parseFloat(val) || 0;
+  if (v >= 32) return 'criticidad-crit';
+  if (v >= 16) return 'criticidad-high';
+  if (v >= 8)  return 'criticidad-med';
+  return 'criticidad-low';
+}
+
+function criticidadClassFull(nivel) {
+  const map = { CRITICO:'criticidad-crit', ALTO:'criticidad-high', MEDIO:'criticidad-med', BAJO:'criticidad-low' };
+  return map[nivel] || 'criticidad-low';
+}
+
+function showError(msg) {
+  document.getElementById('content').innerHTML = `<div class="empty-state"><div class="icon">❌</div><div>Error: ${msg||'Desconocido'}</div></div>`;
+}
+
+function openModal(title, body) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+function showToast(msg, type='success') {
+  const wrap = document.getElementById('toastWrap');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  const icons = { success:'✅', error:'❌', warning:'⚠️' };
+  el.innerHTML = `<span>${icons[type]||'ℹ️'}</span><span>${msg}</span>`;
+  wrap.appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(100%)'; el.style.transition='.3s'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('collapsed');
+}
+
+function verOT(id) {
+  const ot = APP.data.ordenes.find(o => o.ID_OT === id);
+  if (!ot) return;
+  openModal('📋 Detalle OT - ' + ot.NUMERO_OT, `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+      <div><strong>Número:</strong> ${ot.NUMERO_OT}</div>
+      <div><strong>Tipo:</strong> ${ot.TIPO}</div>
+      <div><strong>Embarcación:</strong> ${ot.EMBARCACION}</div>
+      <div><strong>Sistema:</strong> ${ot.SISTEMA}</div>
+      <div><strong>Equipo:</strong> ${ot.EQUIPO||'-'}</div>
+      <div><strong>Técnico:</strong> ${ot.TECNICO||'-'}</div>
+      <div><strong>Prioridad:</strong> ${ot.PRIORIDAD}</div>
+      <div><strong>Estado:</strong> ${ot.ESTADO}</div>
+      <div><strong>Fecha Registro:</strong> ${ot.FECHA_REGISTRO}</div>
+      <div><strong>Fecha Cierre:</strong> ${ot.FECHA_CIERRE||'-'}</div>
+      <div style="grid-column:1/-1"><strong>Descripción:</strong><br>${ot.DESCRIPCION}</div>
+      <div style="grid-column:1/-1"><strong>Observaciones:</strong><br>${ot.OBSERVACIONES||'-'}</div>
+    </div>
+  `);
+}
+
+function verFalla(id) {
+  const f = APP.data.fallas.find(f => f.ID_FALLA === id);
+  if (!f) return;
+  openModal('⚠️ Detalle de Falla - ' + (f.CODIGO_FALLA||f.ID_FALLA), `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+      <div><strong>Código:</strong> ${f.CODIGO_FALLA||'-'}</div>
+      <div><strong>Embarcación:</strong> ${f.UBICACION_TECNICA}</div>
+      <div><strong>Sistema:</strong> ${f.SISTEMA}</div>
+      <div><strong>Equipo:</strong> ${f.EQUIPO}</div>
+      <div><strong>Severidad:</strong> ${f.SEVERIDAD||'-'}</div>
+      <div><strong>Días Falla:</strong> ${f.TIEMPO_FALLA_DIAS}</div>
+      <div><strong>Fecha Registro:</strong> ${f.FECHA_REGISTRO}</div>
+      <div><strong>Reparado:</strong> ${f.EQUIPO_REPARADO||'NO'}</div>
+      <div style="grid-column:1/-1"><strong>Descripción:</strong><br>${f.DESCRIPCION_FALLA}</div>
+      <div style="grid-column:1/-1"><strong>Causa Raíz:</strong><br>${f.CAUSA_RAIZ||'-'}</div>
+      <div style="grid-column:1/-1"><strong>Acción Tomada:</strong><br>${f.ACCION_TOMADA||'-'}</div>
+    </div>
+  `);
+}
+</script>
