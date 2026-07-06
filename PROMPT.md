@@ -105,7 +105,7 @@ DELFIN 11 — Motor Principal, Generador Puerto, Cubierta
 DELFIN 12 — ídem DELFIN 11
 ALCATRAZ  — Motor Principal, Generador Puerto, Cubierta
 CISTERNA 1 — Motor Principal, Generador Puerto, Cubierta
-PANGA     — Motor Principal (fuera de borda)
+PANGA     — Embarcación única (menor): 1 equipo, Motor Principal fuera de borda, 4 componentes
 ```
 
 ### G125_MATRIX — Fuente única de equipos para G-125 y G-127
@@ -408,12 +408,56 @@ Resultados almacenados en hoja `KPIs` para consulta histórica.
 
 ---
 
-### 11. CERTIFICADOS DICAPI
+### 11. CERTIFICADOS DICAPI v2 — con PDF adjunto y refrendas ilimitadas
 
-**Backend:** `getCertificados()` — devuelve certificados con estado calculado:
-- 🔴 VENCIDO | 🟠 CRÍTICO (<5 días) | 🟡 ALERTA (<15 días) | 🟢 VIGENTE
+**Propósito:** Gestión de certificados estatutarios DICAPI por embarcación, con el documento PDF colgado en Google Drive y un sistema de refrendas ilimitadas donde cada refrenda tiene su propia fecha.
 
-`verificarAlertas()` se ejecuta automáticamente al cargar el sistema.
+**Lógica de vigencia por refrendas (concepto central):**
+Un certificado tiene una fecha de emisión, N refrendas (cada una con fecha propia) y una fecha de vencimiento final. Estos forman una cadena de "hitos" en orden cronológico:
+```
+emisión → 1ª refrenda → 2ª refrenda → ... → vencimiento final
+```
+El contador de vigencia SIEMPRE apunta a la próxima fecha pendiente (el próximo hito futuro). Entre la emisión y la 1ª refrenda, cuenta hacia la 1ª refrenda. Una vez pasada, cuenta hacia la 2ª, y así sucesivamente hasta el vencimiento final.
+
+**Estados:** 🟢 VIGENTE (>30 días) · 🟡 ALERTA (<30 días) · 🟠 URGENTE (<15 días) · 🔴 VENCIDO
+
+**Configuración requerida:** en `Code.gs`, la constante `CONFIG.DRIVE_FOLDER_CERTIFICADOS` debe tener el ID de una carpeta de Google Drive existente donde se guardarán los PDFs.
+
+**Columnas hoja Certificados:**
+`ID_CERT | ID_EMBARCACION | EMBARCACION | TIPO_CERTIFICADO | NUMERO | ORGANISMO_EMISOR | FECHA_EMISION | FECHA_VENCIMIENTO_FINAL | ESTADO | DIAS_ALERTA | OBSERVACIONES | ARCHIVO_URL | REFRENDAS_JSON | ARCHIVO_DRIVE_ID | HISTORIAL_PDFS_JSON`
+
+**REFRENDAS_JSON — estructura:**
+```json
+[
+  {"n":1, "fecha":"2025-04-01", "obs":"Primera refrenda DICAPI"},
+  {"n":2, "fecha":"2025-07-01", "obs":""}
+]
+```
+
+**Backend (Code.gs):**
+- `_calcularVigenciaCert(cert)` — motor del contador inteligente. Construye los hitos, encuentra el próximo pendiente, calcula `DIAS_RESTANTES`, `PROXIMO_HITO`, `PROXIMA_FECHA`, `TOTAL_REFRENDAS`, `ES_VENCIMIENTO_FINAL`, `ESTADO_ALERTA`.
+- `getCertificados()` — devuelve todos con vigencia calculada. Compatible con datos viejos (mapea `FECHA_VENCIMIENTO` → `FECHA_VENCIMIENTO_FINAL`).
+- `_getFolderCertificados()` — obtiene la carpeta de Drive configurada.
+- `subirCertificadoPDF(base64Data, nombreArchivo, idCert)` — decodifica base64, crea el PDF en Drive con `DriveApp`, aplica sharing `ANYONE_WITH_LINK`, devuelve `{fileId, url, nombre}`.
+- `guardarCertificado(datos)` — registra el certificado con refrendas y PDF, inicia el historial de PDFs.
+- `agregarRefrenda(idCert, refrenda)` — añade una refrenda al array JSON (sin límite).
+- `actualizarPDFCertificado(idCert, nuevoDriveId, nuevaUrl, nombreArchivo)` — renueva el PDF conservando el anterior en `HISTORIAL_PDFS_JSON`.
+
+**Frontend (app.html) — todo con concatenación de strings (sin backticks):**
+- `renderCertificados()` — carga embarcaciones + certificados, dibuja el body.
+- `certBuildBody()` — 4 stat cards + tarjetas agrupadas por embarcación.
+- `certCard(c)` — tarjeta visual con estado por color, contador inteligente (`DIAS_RESTANTES → PROXIMO_HITO`), chip de refrendas, botones Ver PDF / + Refrenda / Renovar PDF.
+- `certAbrirForm()` + `certOnFileSelect(input)` — formulario nuevo cert con carga de PDF (FileReader → base64).
+- `certGuardar()` / `certGuardarFinal()` — sube el PDF primero (si existe), luego guarda el certificado.
+- `certAbrirRefrenda(idCert)` / `certGuardarRefrenda(idCert)` — modal para agregar refrenda con fecha propia.
+- `certRenovarPDF(idCert)` / `certGuardarRenovPDF(idCert)` — renovar el documento PDF.
+- `certVerPDF(url)` — abre el PDF colgado en pestaña nueva.
+
+**Variable temporal:** `CERT_PDF_TEMP = {base64, nombre, driveId, url}` — guarda el PDF leído antes de subir.
+
+**Flujo de carga de PDF:** el usuario selecciona el archivo → `FileReader.readAsDataURL()` lo convierte a base64 → se envía a `subirCertificadoPDF()` → `DriveApp` lo crea en la carpeta → devuelve la URL → se guarda en la hoja. Límite 25 MB, solo PDF.
+
+`verificarAlertas()` se ejecuta automáticamente al cargar el sistema, usando `PROXIMO_HITO` para los estados URGENTE/ALERTA.
 
 ---
 
