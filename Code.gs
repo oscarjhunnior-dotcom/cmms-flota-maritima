@@ -31,6 +31,11 @@ const CONFIG = {
     G125_SEGUIMIENTO:   'G125_Seguimiento',
     G126_ACTIVIDADES:   'G126_Actividades'
   },
+  // ── CARPETA GOOGLE DRIVE PARA PDFs DE CERTIFICADOS ─────────
+  // PEGA AQUÍ EL ID DE TU CARPETA DE DRIVE (el texto después de /folders/ en la URL)
+  // Ejemplo URL: https://drive.google.com/drive/folders/1AbC2dEfG3hIjK...
+  // El ID sería: 1AbC2dEfG3hIjK...
+  DRIVE_FOLDER_CERTIFICADOS: 'PEGAR_AQUI_ID_DE_CARPETA',
   // ── ROLES ──────────────────────────────────────────────────
   // ADMIN      → acceso total, gestión de usuarios
   // SUPERVISOR → lectura total + crear OTs + KPIs + certificados
@@ -295,7 +300,8 @@ function _configurarHojasBase(ss) {
      'TASA_FALLAS','DISPONIBILIDAD','PROB_FALLA_365','MANTENIBILIDAD','CRITICIDAD','FECHA_CALCULO']);
   cab(ss.getSheetByName(CONFIG.SHEETS.CERTIFICADOS),
     ['ID_CERT','ID_EMBARCACION','EMBARCACION','TIPO_CERTIFICADO','NUMERO','ORGANISMO_EMISOR',
-     'FECHA_EMISION','FECHA_VENCIMIENTO','ESTADO','DIAS_ALERTA','OBSERVACIONES','ARCHIVO_URL']);
+     'FECHA_EMISION','FECHA_VENCIMIENTO_FINAL','ESTADO','DIAS_ALERTA','OBSERVACIONES','ARCHIVO_URL',
+     'REFRENDAS_JSON','ARCHIVO_DRIVE_ID','HISTORIAL_PDFS_JSON']);
   cab(ss.getSheetByName(CONFIG.SHEETS.COMBUSTIBLE),
     ['ID_COMB','FECHA','ID_EMBARCACION','EMBARCACION','TIPO_COMBUSTIBLE','CANTIDAD_GALONES',
      'COSTO_POR_GALON','COSTO_TOTAL','MILLAS_RECORRIDAS','HORAS_OPERACION',
@@ -622,32 +628,205 @@ function registrarCombustible(datos) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  CERTIFICADOS
+//  CERTIFICADOS v2 — con PDF en Drive y refrendas ilimitadas
 // ════════════════════════════════════════════════════════════
+
+// Calcular contador de vigencia inteligente según refrendas
+function _calcularVigenciaCert(cert) {
+  const hoy = new Date();
+  hoy.setHours(0,0,0,0);
+
+  // Parsear refrendas (JSON)
+  let refrendas = [];
+  try { refrendas = cert.REFRENDAS_JSON ? JSON.parse(cert.REFRENDAS_JSON) : []; } catch(e) { refrendas = []; }
+
+  // Ordenar refrendas por fecha
+  refrendas = refrendas.filter(function(r){ return r.fecha; })
+                       .sort(function(a,b){ return new Date(a.fecha) - new Date(b.fecha); });
+
+  // Construir lista de "hitos" en orden cronológico:
+  // emisión → refrenda 1 → refrenda 2 → ... → vencimiento final
+  const hitos = [];
+  if (cert.FECHA_EMISION) hitos.push({ tipo:'EMISION', fecha:new Date(cert.FECHA_EMISION), label:'Emisión' });
+  for (let i = 0; i < refrendas.length; i++) {
+    hitos.push({ tipo:'REFRENDA', fecha:new Date(refrendas[i].fecha), label:(i+1)+'ª refrenda', n:i+1 });
+  }
+  if (cert.FECHA_VENCIMIENTO_FINAL) hitos.push({ tipo:'VENCIMIENTO', fecha:new Date(cert.FECHA_VENCIMIENTO_FINAL), label:'Vencimiento final' });
+
+  // Encontrar el próximo hito pendiente (la próxima fecha futura)
+  let proximoHito = null;
+  for (let i = 0; i < hitos.length; i++) {
+    if (hitos[i].fecha >= hoy) { proximoHito = hitos[i]; break; }
+  }
+
+  // Si no hay hito futuro → el certificado ya venció completamente
+  if (!proximoHito) {
+    cert.DIAS_RESTANTES  = -1;
+    cert.ESTADO_ALERTA   = 'VENCIDO';
+    cert.PROXIMO_HITO    = 'Vencido';
+    cert.PROXIMA_FECHA   = cert.FECHA_VENCIMIENTO_FINAL || '';
+    cert.TOTAL_REFRENDAS = refrendas.length;
+    return cert;
+  }
+
+  // Calcular días hasta el próximo hito
+  const dias = Math.ceil((proximoHito.fecha - hoy) / (1000*60*60*24));
+  cert.DIAS_RESTANTES  = dias;
+  cert.PROXIMO_HITO    = proximoHito.label;
+  cert.PROXIMA_FECHA   = Utilities.formatDate(proximoHito.fecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  cert.TOTAL_REFRENDAS = refrendas.length;
+  cert.ES_VENCIMIENTO_FINAL = (proximoHito.tipo === 'VENCIMIENTO');
+
+  // Estado de alerta según días
+  cert.ESTADO_ALERTA = dias < 0 ? 'VENCIDO' : dias <= 15 ? 'URGENTE' : dias <= 30 ? 'ALERTA' : 'VIGENTE';
+
+  return cert;
+}
+
 function getCertificados() {
   const rows = _leerHoja(CONFIG.SHEETS.CERTIFICADOS);
-  const hoy  = new Date();
-  return rows.map(c => {
-    if (c.FECHA_VENCIMIENTO) {
-      const venc = new Date(c.FECHA_VENCIMIENTO);
-      const dias = Math.ceil((venc-hoy)/(1000*60*60*24));
-      c.DIAS_RESTANTES = dias;
-      c.ESTADO_ALERTA  = dias < 0 ? 'VENCIDO' : dias <= 30 ? 'CRITICO' : dias <= 90 ? 'ALERTA' : 'VIGENTE';
+  return rows.map(function(c) {
+    // Compatibilidad: si tiene el viejo FECHA_VENCIMIENTO pero no FECHA_VENCIMIENTO_FINAL
+    if (!c.FECHA_VENCIMIENTO_FINAL && c.FECHA_VENCIMIENTO) {
+      c.FECHA_VENCIMIENTO_FINAL = c.FECHA_VENCIMIENTO;
     }
-    return c;
+    return _calcularVigenciaCert(c);
   });
 }
 
+// Obtener la carpeta de Drive configurada
+function _getFolderCertificados() {
+  const folderId = CONFIG.DRIVE_FOLDER_CERTIFICADOS;
+  if (!folderId || folderId === 'PEGAR_AQUI_ID_DE_CARPETA') {
+    throw new Error('No se ha configurado la carpeta de Drive. Edita CONFIG.DRIVE_FOLDER_CERTIFICADOS en Code.gs');
+  }
+  try {
+    return DriveApp.getFolderById(folderId);
+  } catch(e) {
+    throw new Error('No se pudo acceder a la carpeta de Drive. Verifica el ID y los permisos.');
+  }
+}
+
+// Subir un PDF a Drive y devolver su URL de visualización
+function subirCertificadoPDF(base64Data, nombreArchivo, idCert) {
+  _checkPermiso('certificados.crear');
+  const folder = _getFolderCertificados();
+
+  // Decodificar base64 → blob PDF
+  const contentType = 'application/pdf';
+  const bytes = Utilities.base64Decode(base64Data);
+  const blob  = Utilities.newBlob(bytes, contentType, nombreArchivo);
+
+  // Nombre único: idCert_fecha_nombreoriginal
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  blob.setName((idCert || 'CERT') + '_' + stamp + '_' + nombreArchivo);
+
+  const file = folder.createFile(blob);
+  // Permiso de visualización para cualquiera con el enlace
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+
+  return {
+    success: true,
+    fileId:  file.getId(),
+    url:     'https://drive.google.com/file/d/' + file.getId() + '/view',
+    nombre:  file.getName()
+  };
+}
+
+// Guardar certificado nuevo (con PDF y refrendas)
 function guardarCertificado(datos) {
   _checkPermiso('certificados.crear');
   const h  = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
   const id = _genId('CRT');
-  h.appendRow([id, datos.ID_EMBARCACION, datos.EMBARCACION, datos.TIPO_CERTIFICADO,
-    datos.NUMERO||'', datos.ORGANISMO_EMISOR||'', datos.FECHA_EMISION||'',
-    datos.FECHA_VENCIMIENTO||'', 'VIGENTE', datos.DIAS_ALERTA||30,
-    datos.OBSERVACIONES||'', datos.ARCHIVO_URL||'']);
-  _auditoria('CERTIFICADO_CREADO', id, datos.TIPO_CERTIFICADO+' | '+datos.EMBARCACION);
-  return { success: true, id, mensaje: 'Certificado registrado' };
+
+  // Historial de PDFs (para conservar versiones al renovar)
+  const histPdfs = [];
+  if (datos.ARCHIVO_DRIVE_ID) {
+    histPdfs.push({
+      fileId: datos.ARCHIVO_DRIVE_ID,
+      url:    datos.ARCHIVO_URL || '',
+      fecha:  Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      nombre: datos.ARCHIVO_NOMBRE || ''
+    });
+  }
+
+  h.appendRow([
+    id,
+    datos.ID_EMBARCACION || '',
+    datos.EMBARCACION    || '',
+    datos.TIPO_CERTIFICADO || '',
+    datos.NUMERO || '',
+    datos.ORGANISMO_EMISOR || 'DICAPI',
+    datos.FECHA_EMISION || '',
+    datos.FECHA_VENCIMIENTO_FINAL || '',
+    'VIGENTE',
+    datos.DIAS_ALERTA || 30,
+    datos.OBSERVACIONES || '',
+    datos.ARCHIVO_URL || '',
+    datos.REFRENDAS_JSON || '[]',
+    datos.ARCHIVO_DRIVE_ID || '',
+    JSON.stringify(histPdfs)
+  ]);
+  _auditoria('CERTIFICADO_CREADO', id, (datos.TIPO_CERTIFICADO||'') + ' | ' + (datos.EMBARCACION||''));
+  return { success: true, id: id, mensaje: 'Certificado registrado correctamente' };
+}
+
+// Agregar una refrenda a un certificado existente
+function agregarRefrenda(idCert, refrenda) {
+  _checkPermiso('certificados.crear');
+  const h    = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
+  const data = h.getDataRange().getValues();
+  const head = data[0];
+  const idxId   = head.indexOf('ID_CERT');
+  const idxRef  = head.indexOf('REFRENDAS_JSON');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idxId] === idCert) {
+      let refrendas = [];
+      try { refrendas = data[i][idxRef] ? JSON.parse(data[i][idxRef]) : []; } catch(e) { refrendas = []; }
+      refrendas.push({
+        n:     refrendas.length + 1,
+        fecha: refrenda.fecha,
+        obs:   refrenda.obs || ''
+      });
+      h.getRange(i+1, idxRef+1).setValue(JSON.stringify(refrendas));
+      _auditoria('REFRENDA_AGREGADA', idCert, (refrendas.length)+'ª refrenda | '+refrenda.fecha);
+      return { success: true, mensaje: 'Refrenda N.° ' + refrendas.length + ' registrada', totalRefrendas: refrendas.length };
+    }
+  }
+  return { error: 'Certificado no encontrado' };
+}
+
+// Actualizar el PDF de un certificado (renovación del documento)
+function actualizarPDFCertificado(idCert, nuevoDriveId, nuevaUrl, nombreArchivo) {
+  _checkPermiso('certificados.crear');
+  const h    = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
+  const data = h.getDataRange().getValues();
+  const head = data[0];
+  const idxId   = head.indexOf('ID_CERT');
+  const idxUrl  = head.indexOf('ARCHIVO_URL');
+  const idxDid  = head.indexOf('ARCHIVO_DRIVE_ID');
+  const idxHist = head.indexOf('HISTORIAL_PDFS_JSON');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idxId] === idCert) {
+      // Agregar al historial
+      let hist = [];
+      try { hist = data[i][idxHist] ? JSON.parse(data[i][idxHist]) : []; } catch(e) { hist = []; }
+      hist.push({
+        fileId: nuevoDriveId,
+        url:    nuevaUrl,
+        fecha:  Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        nombre: nombreArchivo || ''
+      });
+      h.getRange(i+1, idxUrl+1).setValue(nuevaUrl);
+      h.getRange(i+1, idxDid+1).setValue(nuevoDriveId);
+      h.getRange(i+1, idxHist+1).setValue(JSON.stringify(hist));
+      _auditoria('CERTIFICADO_PDF_ACTUALIZADO', idCert, nombreArchivo || '');
+      return { success: true, mensaje: 'PDF del certificado actualizado' };
+    }
+  }
+  return { error: 'Certificado no encontrado' };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -809,8 +988,10 @@ function verificarAlertas() {
     getCertificados().forEach(c => {
       if (c.ESTADO_ALERTA==='VENCIDO')
         alertas.push({ tipo:'CRITICO', mensaje:`Certificado VENCIDO: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
-      else if (c.ESTADO_ALERTA==='CRITICO')
-        alertas.push({ tipo:'ALERTA', mensaje:`Vence en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
+      else if (c.ESTADO_ALERTA==='URGENTE')
+        alertas.push({ tipo:'CRITICO', mensaje:`${c.PROXIMO_HITO} en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
+      else if (c.ESTADO_ALERTA==='ALERTA')
+        alertas.push({ tipo:'ALERTA', mensaje:`${c.PROXIMO_HITO} en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
     });
 
     _leerHoja(CONFIG.SHEETS.ORDENES).forEach(ot => {
