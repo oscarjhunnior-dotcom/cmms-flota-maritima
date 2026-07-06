@@ -31,6 +31,11 @@ const CONFIG = {
     G125_SEGUIMIENTO:   'G125_Seguimiento',
     G126_ACTIVIDADES:   'G126_Actividades'
   },
+  // ── CARPETA GOOGLE DRIVE PARA PDFs DE CERTIFICADOS ─────────
+  // PEGA AQUÍ EL ID DE TU CARPETA DE DRIVE (el texto después de /folders/ en la URL)
+  // Ejemplo URL: https://drive.google.com/drive/folders/1AbC2dEfG3hIjK...
+  // El ID sería: 1AbC2dEfG3hIjK...
+  DRIVE_FOLDER_CERTIFICADOS: 'PEGAR_AQUI_ID_DE_CARPETA',
   // ── ROLES ──────────────────────────────────────────────────
   // ADMIN      → acceso total, gestión de usuarios
   // SUPERVISOR → lectura total + crear OTs + KPIs + certificados
@@ -281,18 +286,22 @@ function _configurarHojasBase(ss) {
      'NOTIFICACION','DESCRIPCION_FALLA','ORDEN_MANT','FECHA_CIERRE','EQUIPO_REPARADO',
      'MES','ANO','TIEMPO_FALLA_DIAS','SEVERIDAD','CAUSA_RAIZ','ACCION_TOMADA','COSTO_ESTIMADO']);
   cab(ss.getSheetByName(CONFIG.SHEETS.PARAMETROS),
-    ['ID_PARAM','FECHA','ID_EMBARCACION','EMBARCACION','ID_EQUIPO','EQUIPO','CODIGO_GENERAL',
-     'COMPONENTE','INSPECCION_VISUAL_SEMANAL','HORAS_OPERACION','OBSERVACION',
-     'HOROMETRO_ULT_MANT','HOROMETRO_ACTUAL','HOROMETRO_PROX_MANT','HOROMETRO_REPORTADO',
-     'HUMO','RPM','TEMP_AGUA_C','PRESION_LO_PSI','PRESION_FO_PSI','VOLTAJE',
-     'OTRO_REPORTE','CONSUMO_PETROLEO','MILLAS_RECORRIDAS','HOR_INICIAL','HOR_FINAL','REGISTRADO_POR']);
+    ['ID_PARAM','FECHA','ID_EMBARCACION','EMBARCACION','ID_EQUIPO','EQUIPO',
+     'TIPO_EQUIPO','TIPO_INSPECCION','RESPONSABLE',
+     'INSPECCION_VISUAL','HOROMETRO_ACTUAL',
+     'RPM','TEMP_AGUA_C','PRESION_LO_PSI','PRESION_FO_PSI','VOLTAJE','HUMO',
+     'CONSUMO_PETROLEO','MILLAS_RECORRIDAS','HOR_INICIAL','HOR_FINAL',
+     'AMPERAJE','FRECUENCIA','PRESION_HIDRAULICA','TEMP_ACEITE_HID',
+     'PRESION_ENTRADA','TDS','NIVEL_ACEITE','FUGAS','VIBRACION','RUIDO','ESTADO',
+     'PARAMETROS_JSON','OBSERVACION','REGISTRADO_POR']);
   cab(ss.getSheetByName(CONFIG.SHEETS.KPIS),
     ['ID_KPI','ANO','MES','ID_EMBARCACION','EMBARCACION','ID_SISTEMA','SISTEMA','ID_EQUIPO',
      'EQUIPO','NUM_FALLAS','DIAS_TOTALES','DIAS_FOP','TIEMPO_OP','MTTR','MTBF',
      'TASA_FALLAS','DISPONIBILIDAD','PROB_FALLA_365','MANTENIBILIDAD','CRITICIDAD','FECHA_CALCULO']);
   cab(ss.getSheetByName(CONFIG.SHEETS.CERTIFICADOS),
     ['ID_CERT','ID_EMBARCACION','EMBARCACION','TIPO_CERTIFICADO','NUMERO','ORGANISMO_EMISOR',
-     'FECHA_EMISION','FECHA_VENCIMIENTO','ESTADO','DIAS_ALERTA','OBSERVACIONES','ARCHIVO_URL']);
+     'FECHA_EMISION','FECHA_VENCIMIENTO_FINAL','ESTADO','DIAS_ALERTA','OBSERVACIONES','ARCHIVO_URL',
+     'REFRENDAS_JSON','ARCHIVO_DRIVE_ID','HISTORIAL_PDFS_JSON']);
   cab(ss.getSheetByName(CONFIG.SHEETS.COMBUSTIBLE),
     ['ID_COMB','FECHA','ID_EMBARCACION','EMBARCACION','TIPO_COMBUSTIBLE','CANTIDAD_GALONES',
      'COSTO_POR_GALON','COSTO_TOTAL','MILLAS_RECORRIDAS','HORAS_OPERACION',
@@ -519,29 +528,78 @@ function registrarParametros(datos) {
   const user = getUsuarioActual();
   const id   = _genId('PM');
   const ahora = new Date();
-  h.appendRow([id, ahora, datos.ID_EMBARCACION, datos.EMBARCACION,
-    datos.ID_EQUIPO, datos.EQUIPO, datos.CODIGO_GENERAL||'', datos.COMPONENTE||'',
-    datos.INSPECCION_VISUAL||'', datos.HORAS_OP||0, datos.OBSERVACION||'',
-    datos.HOROMETRO_ULT_MANT||0, datos.HOROMETRO_ACTUAL||0,
-    datos.HOROMETRO_PROX_MANT||0, datos.HOROMETRO_REPORTADO||0,
-    datos.HUMO||'NOR', datos.RPM||0, datos.TEMP_AGUA||0,
-    datos.PRESION_LO||0, datos.PRESION_FO||0, datos.VOLTAJE||0,
-    datos.OTRO_REPORTE||'', datos.CONSUMO_PETROLEO||0,
-    datos.MILLAS_RECORRIDAS||0, datos.HOR_INICIAL||0, datos.HOR_FINAL||0, user.email]);
-  // Actualizar horómetro del equipo automáticamente
-  if (datos.ID_EQUIPO && parseFloat(datos.HOROMETRO_ACTUAL) > 0) {
+
+  // Desempacar parámetros dinámicos del G-127 (vienen como JSON string)
+  let params = {};
+  try { params = datos.PARAMETROS ? JSON.parse(datos.PARAMETROS) : {}; } catch(e) {}
+
+  h.appendRow([
+    id, ahora,
+    datos.ID_EMBARCACION || '',
+    datos.EMBARCACION    || '',
+    datos.ID_EQUIPO      || '',
+    datos.EQUIPO         || '',
+    datos.TIPO_EQUIPO    || '',
+    datos.TIPO_INSPECCION|| 'SEMANAL',
+    datos.RESPONSABLE    || user.email,
+    datos.INSPECCION_VISUAL || datos.INSPECCION_VISUAL_SEMANAL || '',
+    parseFloat(datos.HOROMETRO_ACTUAL) || 0,
+    // Parámetros dinámicos según tipo de equipo
+    parseFloat(params.rpm      || datos.RPM      || 0),
+    parseFloat(params.temp     || datos.TEMP_AGUA|| 0),
+    parseFloat(params.plo      || datos.PRESION_LO|| 0),
+    parseFloat(params.pfo      || datos.PRESION_FO|| 0),
+    parseFloat(params.volt     || datos.VOLTAJE  || 0),
+    params.humo  || datos.HUMO || '',
+    parseFloat(params.consumo  || datos.CONSUMO_PETROLEO || 0),
+    parseFloat(params.millas   || datos.MILLAS_RECORRIDAS|| 0),
+    parseFloat(params.hini     || datos.HOR_INICIAL      || 0),
+    parseFloat(params.hfin     || datos.HOR_FINAL        || 0),
+    parseFloat(params.amp      || 0),
+    parseFloat(params.frec     || 0),
+    parseFloat(params.pres_hid || 0),
+    parseFloat(params.temp_hid || 0),
+    parseFloat(params.pres_ent || 0),
+    parseFloat(params.tds      || 0),
+    params.nivel   || '',
+    params.fugas   || '',
+    params.vibr    || '',
+    params.ruido   || '',
+    params.estado  || '',
+    datos.PARAMETROS || '',   // JSON completo como respaldo
+    datos.OBSERVACION || '',
+    user.email
+  ]);
+
+  // Actualizar horómetro en hoja Equipos si viene ID_EQUIPO
+  const horom = parseFloat(datos.HOROMETRO_ACTUAL);
+  if (datos.ID_EQUIPO && horom > 0) {
     try {
-      const hEq = _ss().getSheetByName(CONFIG.SHEETS.EQUIPOS);
-      const eqData = hEq.getDataRange().getValues();
-      const eqIdx  = eqData.findIndex(r => r[0] === datos.ID_EQUIPO);
-      if (eqIdx > 0) {
-        hEq.getRange(eqIdx+1, 12).setValue(parseFloat(datos.HOROMETRO_ACTUAL));
-        _cacheInvalidar('eq_all'); _cacheInvalidar('eq_'+datos.ID_EMBARCACION);
+      const hEq  = _ss().getSheetByName(CONFIG.SHEETS.EQUIPOS);
+      const eqD  = hEq.getDataRange().getValues();
+      const idx  = eqD.findIndex(function(r){ return r[0] === datos.ID_EQUIPO; });
+      if (idx > 0) {
+        hEq.getRange(idx+1, 12).setValue(horom);
+        _cacheInvalidar('eq_all');
+        _cacheInvalidar('eq_'+datos.ID_EMBARCACION);
       }
     } catch(e) {}
   }
-  _auditoria('PARAMETROS_REGISTRADOS', id, datos.EMBARCACION+' | '+datos.EQUIPO);
-  return { success: true, id, mensaje: 'Parámetros registrados correctamente' };
+
+  _auditoria('PARAMETROS_REGISTRADOS', id, (datos.EMBARCACION||'') + ' | ' + (datos.EQUIPO||'') + ' | ' + (datos.TIPO_INSPECCION||''));
+  return { success: true, id, mensaje: 'G-127 registrado — ' + (datos.EQUIPO||'') };
+}
+
+// ── Consultar historial de parámetros de un equipo ──────────────
+function getParametros(filtros) {
+  filtros = filtros || {};
+  const rows = _leerHoja(CONFIG.SHEETS.PARAMETROS);
+  let result = rows;
+  if (filtros.embarcacion) result = result.filter(function(r){ return r.EMBARCACION === filtros.embarcacion; });
+  if (filtros.equipo)      result = result.filter(function(r){ return r.EQUIPO === filtros.equipo; });
+  if (filtros.tipo)        result = result.filter(function(r){ return r.TIPO_INSPECCION === filtros.tipo; });
+  if (filtros.limit)       result = result.slice(-filtros.limit);
+  return result;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -570,32 +628,205 @@ function registrarCombustible(datos) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  CERTIFICADOS
+//  CERTIFICADOS v2 — con PDF en Drive y refrendas ilimitadas
 // ════════════════════════════════════════════════════════════
+
+// Calcular contador de vigencia inteligente según refrendas
+function _calcularVigenciaCert(cert) {
+  const hoy = new Date();
+  hoy.setHours(0,0,0,0);
+
+  // Parsear refrendas (JSON)
+  let refrendas = [];
+  try { refrendas = cert.REFRENDAS_JSON ? JSON.parse(cert.REFRENDAS_JSON) : []; } catch(e) { refrendas = []; }
+
+  // Ordenar refrendas por fecha
+  refrendas = refrendas.filter(function(r){ return r.fecha; })
+                       .sort(function(a,b){ return new Date(a.fecha) - new Date(b.fecha); });
+
+  // Construir lista de "hitos" en orden cronológico:
+  // emisión → refrenda 1 → refrenda 2 → ... → vencimiento final
+  const hitos = [];
+  if (cert.FECHA_EMISION) hitos.push({ tipo:'EMISION', fecha:new Date(cert.FECHA_EMISION), label:'Emisión' });
+  for (let i = 0; i < refrendas.length; i++) {
+    hitos.push({ tipo:'REFRENDA', fecha:new Date(refrendas[i].fecha), label:(i+1)+'ª refrenda', n:i+1 });
+  }
+  if (cert.FECHA_VENCIMIENTO_FINAL) hitos.push({ tipo:'VENCIMIENTO', fecha:new Date(cert.FECHA_VENCIMIENTO_FINAL), label:'Vencimiento final' });
+
+  // Encontrar el próximo hito pendiente (la próxima fecha futura)
+  let proximoHito = null;
+  for (let i = 0; i < hitos.length; i++) {
+    if (hitos[i].fecha >= hoy) { proximoHito = hitos[i]; break; }
+  }
+
+  // Si no hay hito futuro → el certificado ya venció completamente
+  if (!proximoHito) {
+    cert.DIAS_RESTANTES  = -1;
+    cert.ESTADO_ALERTA   = 'VENCIDO';
+    cert.PROXIMO_HITO    = 'Vencido';
+    cert.PROXIMA_FECHA   = cert.FECHA_VENCIMIENTO_FINAL || '';
+    cert.TOTAL_REFRENDAS = refrendas.length;
+    return cert;
+  }
+
+  // Calcular días hasta el próximo hito
+  const dias = Math.ceil((proximoHito.fecha - hoy) / (1000*60*60*24));
+  cert.DIAS_RESTANTES  = dias;
+  cert.PROXIMO_HITO    = proximoHito.label;
+  cert.PROXIMA_FECHA   = Utilities.formatDate(proximoHito.fecha, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  cert.TOTAL_REFRENDAS = refrendas.length;
+  cert.ES_VENCIMIENTO_FINAL = (proximoHito.tipo === 'VENCIMIENTO');
+
+  // Estado de alerta según días
+  cert.ESTADO_ALERTA = dias < 0 ? 'VENCIDO' : dias <= 15 ? 'URGENTE' : dias <= 30 ? 'ALERTA' : 'VIGENTE';
+
+  return cert;
+}
+
 function getCertificados() {
   const rows = _leerHoja(CONFIG.SHEETS.CERTIFICADOS);
-  const hoy  = new Date();
-  return rows.map(c => {
-    if (c.FECHA_VENCIMIENTO) {
-      const venc = new Date(c.FECHA_VENCIMIENTO);
-      const dias = Math.ceil((venc-hoy)/(1000*60*60*24));
-      c.DIAS_RESTANTES = dias;
-      c.ESTADO_ALERTA  = dias < 0 ? 'VENCIDO' : dias <= 30 ? 'CRITICO' : dias <= 90 ? 'ALERTA' : 'VIGENTE';
+  return rows.map(function(c) {
+    // Compatibilidad: si tiene el viejo FECHA_VENCIMIENTO pero no FECHA_VENCIMIENTO_FINAL
+    if (!c.FECHA_VENCIMIENTO_FINAL && c.FECHA_VENCIMIENTO) {
+      c.FECHA_VENCIMIENTO_FINAL = c.FECHA_VENCIMIENTO;
     }
-    return c;
+    return _calcularVigenciaCert(c);
   });
 }
 
+// Obtener la carpeta de Drive configurada
+function _getFolderCertificados() {
+  const folderId = CONFIG.DRIVE_FOLDER_CERTIFICADOS;
+  if (!folderId || folderId === 'PEGAR_AQUI_ID_DE_CARPETA') {
+    throw new Error('No se ha configurado la carpeta de Drive. Edita CONFIG.DRIVE_FOLDER_CERTIFICADOS en Code.gs');
+  }
+  try {
+    return DriveApp.getFolderById(folderId);
+  } catch(e) {
+    throw new Error('No se pudo acceder a la carpeta de Drive. Verifica el ID y los permisos.');
+  }
+}
+
+// Subir un PDF a Drive y devolver su URL de visualización
+function subirCertificadoPDF(base64Data, nombreArchivo, idCert) {
+  _checkPermiso('certificados.crear');
+  const folder = _getFolderCertificados();
+
+  // Decodificar base64 → blob PDF
+  const contentType = 'application/pdf';
+  const bytes = Utilities.base64Decode(base64Data);
+  const blob  = Utilities.newBlob(bytes, contentType, nombreArchivo);
+
+  // Nombre único: idCert_fecha_nombreoriginal
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  blob.setName((idCert || 'CERT') + '_' + stamp + '_' + nombreArchivo);
+
+  const file = folder.createFile(blob);
+  // Permiso de visualización para cualquiera con el enlace
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+
+  return {
+    success: true,
+    fileId:  file.getId(),
+    url:     'https://drive.google.com/file/d/' + file.getId() + '/view',
+    nombre:  file.getName()
+  };
+}
+
+// Guardar certificado nuevo (con PDF y refrendas)
 function guardarCertificado(datos) {
   _checkPermiso('certificados.crear');
   const h  = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
   const id = _genId('CRT');
-  h.appendRow([id, datos.ID_EMBARCACION, datos.EMBARCACION, datos.TIPO_CERTIFICADO,
-    datos.NUMERO||'', datos.ORGANISMO_EMISOR||'', datos.FECHA_EMISION||'',
-    datos.FECHA_VENCIMIENTO||'', 'VIGENTE', datos.DIAS_ALERTA||30,
-    datos.OBSERVACIONES||'', datos.ARCHIVO_URL||'']);
-  _auditoria('CERTIFICADO_CREADO', id, datos.TIPO_CERTIFICADO+' | '+datos.EMBARCACION);
-  return { success: true, id, mensaje: 'Certificado registrado' };
+
+  // Historial de PDFs (para conservar versiones al renovar)
+  const histPdfs = [];
+  if (datos.ARCHIVO_DRIVE_ID) {
+    histPdfs.push({
+      fileId: datos.ARCHIVO_DRIVE_ID,
+      url:    datos.ARCHIVO_URL || '',
+      fecha:  Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      nombre: datos.ARCHIVO_NOMBRE || ''
+    });
+  }
+
+  h.appendRow([
+    id,
+    datos.ID_EMBARCACION || '',
+    datos.EMBARCACION    || '',
+    datos.TIPO_CERTIFICADO || '',
+    datos.NUMERO || '',
+    datos.ORGANISMO_EMISOR || 'DICAPI',
+    datos.FECHA_EMISION || '',
+    datos.FECHA_VENCIMIENTO_FINAL || '',
+    'VIGENTE',
+    datos.DIAS_ALERTA || 30,
+    datos.OBSERVACIONES || '',
+    datos.ARCHIVO_URL || '',
+    datos.REFRENDAS_JSON || '[]',
+    datos.ARCHIVO_DRIVE_ID || '',
+    JSON.stringify(histPdfs)
+  ]);
+  _auditoria('CERTIFICADO_CREADO', id, (datos.TIPO_CERTIFICADO||'') + ' | ' + (datos.EMBARCACION||''));
+  return { success: true, id: id, mensaje: 'Certificado registrado correctamente' };
+}
+
+// Agregar una refrenda a un certificado existente
+function agregarRefrenda(idCert, refrenda) {
+  _checkPermiso('certificados.crear');
+  const h    = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
+  const data = h.getDataRange().getValues();
+  const head = data[0];
+  const idxId   = head.indexOf('ID_CERT');
+  const idxRef  = head.indexOf('REFRENDAS_JSON');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idxId] === idCert) {
+      let refrendas = [];
+      try { refrendas = data[i][idxRef] ? JSON.parse(data[i][idxRef]) : []; } catch(e) { refrendas = []; }
+      refrendas.push({
+        n:     refrendas.length + 1,
+        fecha: refrenda.fecha,
+        obs:   refrenda.obs || ''
+      });
+      h.getRange(i+1, idxRef+1).setValue(JSON.stringify(refrendas));
+      _auditoria('REFRENDA_AGREGADA', idCert, (refrendas.length)+'ª refrenda | '+refrenda.fecha);
+      return { success: true, mensaje: 'Refrenda N.° ' + refrendas.length + ' registrada', totalRefrendas: refrendas.length };
+    }
+  }
+  return { error: 'Certificado no encontrado' };
+}
+
+// Actualizar el PDF de un certificado (renovación del documento)
+function actualizarPDFCertificado(idCert, nuevoDriveId, nuevaUrl, nombreArchivo) {
+  _checkPermiso('certificados.crear');
+  const h    = _ss().getSheetByName(CONFIG.SHEETS.CERTIFICADOS);
+  const data = h.getDataRange().getValues();
+  const head = data[0];
+  const idxId   = head.indexOf('ID_CERT');
+  const idxUrl  = head.indexOf('ARCHIVO_URL');
+  const idxDid  = head.indexOf('ARCHIVO_DRIVE_ID');
+  const idxHist = head.indexOf('HISTORIAL_PDFS_JSON');
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idxId] === idCert) {
+      // Agregar al historial
+      let hist = [];
+      try { hist = data[i][idxHist] ? JSON.parse(data[i][idxHist]) : []; } catch(e) { hist = []; }
+      hist.push({
+        fileId: nuevoDriveId,
+        url:    nuevaUrl,
+        fecha:  Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        nombre: nombreArchivo || ''
+      });
+      h.getRange(i+1, idxUrl+1).setValue(nuevaUrl);
+      h.getRange(i+1, idxDid+1).setValue(nuevoDriveId);
+      h.getRange(i+1, idxHist+1).setValue(JSON.stringify(hist));
+      _auditoria('CERTIFICADO_PDF_ACTUALIZADO', idCert, nombreArchivo || '');
+      return { success: true, mensaje: 'PDF del certificado actualizado' };
+    }
+  }
+  return { error: 'Certificado no encontrado' };
 }
 
 // ════════════════════════════════════════════════════════════
@@ -757,8 +988,10 @@ function verificarAlertas() {
     getCertificados().forEach(c => {
       if (c.ESTADO_ALERTA==='VENCIDO')
         alertas.push({ tipo:'CRITICO', mensaje:`Certificado VENCIDO: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
-      else if (c.ESTADO_ALERTA==='CRITICO')
-        alertas.push({ tipo:'ALERTA', mensaje:`Vence en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
+      else if (c.ESTADO_ALERTA==='URGENTE')
+        alertas.push({ tipo:'CRITICO', mensaje:`${c.PROXIMO_HITO} en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
+      else if (c.ESTADO_ALERTA==='ALERTA')
+        alertas.push({ tipo:'ALERTA', mensaje:`${c.PROXIMO_HITO} en ${c.DIAS_RESTANTES} días: ${c.TIPO_CERTIFICADO} — ${c.EMBARCACION}`, modulo:'certificados' });
     });
 
     _leerHoja(CONFIG.SHEETS.ORDENES).forEach(ot => {
