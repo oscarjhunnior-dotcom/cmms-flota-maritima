@@ -1405,7 +1405,7 @@ function g125Load() {
     for (var ei = 0; ei < eqs.length; ei++) totComp += eqs[ei].componentes.length;
 
     html += '<div style="border-radius:10px;overflow:hidden;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)">';
-    html += '<div onclick="g125Toggle('' + sysId + '')" '
+    html += '<div onclick="g125Toggle(\'' + sysId + '\')" '
       + 'style="background:' + cfg.hdr + ';color:white;padding:11px 16px;cursor:pointer;'
       + 'display:flex;justify-content:space-between;align-items:center">'
       + '<div style="display:flex;align-items:center;gap:8px">'
@@ -1427,8 +1427,8 @@ function g125Load() {
         + 'padding:7px 16px 7px 42px;display:flex;justify-content:space-between;align-items:center">'
         + '<div style="font-size:11px;font-weight:700;color:' + cfg.hdr + '">🔩 ' + eq.equipo + '</div>'
         + '<div style="display:flex;gap:4px">'
-        + '<button onclick="g125MarkAll('' + eqId + '','OK')" style="padding:2px 8px;border:none;border-radius:10px;background:#e8f5e9;color:#2e7d32;font-size:10px;font-weight:700;cursor:pointer">✅ Todo OK</button>'
-        + '<button onclick="g125MarkAll('' + eqId + '','N/A')" style="padding:2px 8px;border:none;border-radius:10px;background:#f5f5f5;color:#555;font-size:10px;font-weight:700;cursor:pointer">➖ N/A</button>'
+        + '<button onclick="g125MarkAll(\'' + eqId + '\',\'OK\')" style="padding:2px 8px;border:none;border-radius:10px;background:#e8f5e9;color:#2e7d32;font-size:10px;font-weight:700;cursor:pointer">✅ Todo OK</button>'
+        + '<button onclick="g125MarkAll(\'' + eqId + '\',\'N/A\')" style="padding:2px 8px;border:none;border-radius:10px;background:#f5f5f5;color:#555;font-size:10px;font-weight:700;cursor:pointer">➖ N/A</button>'
         + '</div></div>';
 
       html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:0;'
@@ -1445,7 +1445,7 @@ function g125Load() {
 
         html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:4px;align-items:center;'
           + 'padding:4px 6px;border-radius:5px;margin-bottom:2px;background:white;border:1px solid transparent" '
-          + 'onmouseover="this.style.background='' + cfg.bg + ''" onmouseout="this.style.background='white'">'
+          + 'onmouseover="this.style.background=\'' + cfg.bg + '\'" onmouseout="this.style.background=\'white\'">'
           + '<div style="width:8px;height:8px;border-radius:50%;background:#e0e0e0" id="' + rId + 'dot"></div>'
           + '<div style="font-size:12px;color:#333;font-weight:500">' + comp.nombre + '</div>'
           + '<input type="number" id="' + rId + 'h" value="' + comp.horas + '" step="0.5" min="0" '
@@ -1454,15 +1454,15 @@ function g125Load() {
           + '<input type="text" id="' + rId + 'o" placeholder="Observación..." '
           + 'style="padding:4px 6px;border:1px solid #e0e0e0;border-radius:4px;font-size:11px;width:100%;'
           + 'box-sizing:border-box;background:transparent" '
-          + 'onfocus="this.style.background='white'" onblur="this.style.background='transparent'">'
+          + 'onfocus="this.style.background=\'white\'" onblur="this.style.background=\'transparent\'">'
           + '<div style="display:flex;gap:2px">'
-          + '<button id="' + rId + 'ok" onclick="g125Set('' + rId + '','OK','' + sysId + '')" '
+          + '<button id="' + rId + 'ok" onclick="g125Set(\'' + rId + '\',\'OK\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">✅</button>'
-          + '<button id="' + rId + 'pe" onclick="g125Set('' + rId + '','PEN','' + sysId + '')" '
+          + '<button id="' + rId + 'pe" onclick="g125Set(\'' + rId + '\',\'PEN\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">⏳</button>'
-          + '<button id="' + rId + 'fa" onclick="g125Set('' + rId + '','FALTA','' + sysId + '')" '
+          + '<button id="' + rId + 'fa" onclick="g125Set(\'' + rId + '\',\'FALTA\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">❌</button>'
-          + '<button id="' + rId + 'na" onclick="g125Set('' + rId + '','N/A','' + sysId + '')" '
+          + '<button id="' + rId + 'na" onclick="g125Set(\'' + rId + '\',\'N/A\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">➖</button>'
           + '</div>'
           + '<input type="hidden" id="' + rId + 'est" value="">'
@@ -1634,7 +1634,7 @@ function buildG126Form() {
       + '<td style="padding:6px 10px;font-weight:700;border:1px solid #e0e0e0;background:#f0f8ff">' + fi + '</td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px"><input type="text" id="' + fid + '_tipo" placeholder="Ej: Cambio filtro aceite" style="width:100%;border:none;font-size:11px;padding:3px;box-sizing:border-box"></td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_ult" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
-      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_act" step="0.5" min="0" placeholder="0" oninput="g126Calc('' + fid + '')" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_act" step="0.5" min="0" placeholder="0" oninput="g126Calc(\'' + fid + '\')" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_prox" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center;background:#fffde7"></td>'
       + '</tr>';
   }
@@ -1680,7 +1680,7 @@ function buildG126Form() {
     + '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;color:#555;display:block;margin-bottom:4px">Observaciones</label>'
     + '<textarea id="g126obs" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-    + '<button class="btn btn-outline" onclick="pmSwitch('g126')">🔄 Limpiar</button>'
+    + '<button class="btn btn-outline" onclick="pmSwitch(\'g126\')">🔄 Limpiar</button>'
     + '<button style="padding:10px 20px;background:#2e7d32;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer" onclick="g126Save()">💾 Registrar G-126</button>'
     + '</div></div></div>'
   );
