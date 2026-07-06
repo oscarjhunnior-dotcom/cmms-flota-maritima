@@ -1405,7 +1405,7 @@ function g125Load() {
     for (var ei = 0; ei < eqs.length; ei++) totComp += eqs[ei].componentes.length;
 
     html += '<div style="border-radius:10px;overflow:hidden;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)">';
-    html += '<div onclick="g125Toggle('' + sysId + '')" '
+    html += '<div onclick="g125Toggle(\'' + sysId + '\')" '
       + 'style="background:' + cfg.hdr + ';color:white;padding:11px 16px;cursor:pointer;'
       + 'display:flex;justify-content:space-between;align-items:center">'
       + '<div style="display:flex;align-items:center;gap:8px">'
@@ -1427,8 +1427,8 @@ function g125Load() {
         + 'padding:7px 16px 7px 42px;display:flex;justify-content:space-between;align-items:center">'
         + '<div style="font-size:11px;font-weight:700;color:' + cfg.hdr + '">🔩 ' + eq.equipo + '</div>'
         + '<div style="display:flex;gap:4px">'
-        + '<button onclick="g125MarkAll('' + eqId + '','OK')" style="padding:2px 8px;border:none;border-radius:10px;background:#e8f5e9;color:#2e7d32;font-size:10px;font-weight:700;cursor:pointer">✅ Todo OK</button>'
-        + '<button onclick="g125MarkAll('' + eqId + '','N/A')" style="padding:2px 8px;border:none;border-radius:10px;background:#f5f5f5;color:#555;font-size:10px;font-weight:700;cursor:pointer">➖ N/A</button>'
+        + '<button onclick="g125MarkAll(\'' + eqId + '\',\'OK\')" style="padding:2px 8px;border:none;border-radius:10px;background:#e8f5e9;color:#2e7d32;font-size:10px;font-weight:700;cursor:pointer">✅ Todo OK</button>'
+        + '<button onclick="g125MarkAll(\'' + eqId + '\',\'N/A\')" style="padding:2px 8px;border:none;border-radius:10px;background:#f5f5f5;color:#555;font-size:10px;font-weight:700;cursor:pointer">➖ N/A</button>'
         + '</div></div>';
 
       html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:0;'
@@ -1445,7 +1445,7 @@ function g125Load() {
 
         html += '<div style="display:grid;grid-template-columns:16px 1fr 80px 1fr 140px;gap:4px;align-items:center;'
           + 'padding:4px 6px;border-radius:5px;margin-bottom:2px;background:white;border:1px solid transparent" '
-          + 'onmouseover="this.style.background='' + cfg.bg + ''" onmouseout="this.style.background='white'">'
+          + 'onmouseover="this.style.background=\'' + cfg.bg + '\'" onmouseout="this.style.background=\'white\'">'
           + '<div style="width:8px;height:8px;border-radius:50%;background:#e0e0e0" id="' + rId + 'dot"></div>'
           + '<div style="font-size:12px;color:#333;font-weight:500">' + comp.nombre + '</div>'
           + '<input type="number" id="' + rId + 'h" value="' + comp.horas + '" step="0.5" min="0" '
@@ -1454,15 +1454,15 @@ function g125Load() {
           + '<input type="text" id="' + rId + 'o" placeholder="Observación..." '
           + 'style="padding:4px 6px;border:1px solid #e0e0e0;border-radius:4px;font-size:11px;width:100%;'
           + 'box-sizing:border-box;background:transparent" '
-          + 'onfocus="this.style.background='white'" onblur="this.style.background='transparent'">'
+          + 'onfocus="this.style.background=\'white\'" onblur="this.style.background=\'transparent\'">'
           + '<div style="display:flex;gap:2px">'
-          + '<button id="' + rId + 'ok" onclick="g125Set('' + rId + '','OK','' + sysId + '')" '
+          + '<button id="' + rId + 'ok" onclick="g125Set(\'' + rId + '\',\'OK\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">✅</button>'
-          + '<button id="' + rId + 'pe" onclick="g125Set('' + rId + '','PEN','' + sysId + '')" '
+          + '<button id="' + rId + 'pe" onclick="g125Set(\'' + rId + '\',\'PEN\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">⏳</button>'
-          + '<button id="' + rId + 'fa" onclick="g125Set('' + rId + '','FALTA','' + sysId + '')" '
+          + '<button id="' + rId + 'fa" onclick="g125Set(\'' + rId + '\',\'FALTA\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">❌</button>'
-          + '<button id="' + rId + 'na" onclick="g125Set('' + rId + '','N/A','' + sysId + '')" '
+          + '<button id="' + rId + 'na" onclick="g125Set(\'' + rId + '\',\'N/A\',\'' + sysId + '\')" '
           + 'style="flex:1;padding:4px 2px;border:1.5px solid #ddd;border-radius:4px;background:white;font-size:11px;cursor:pointer">➖</button>'
           + '</div>'
           + '<input type="hidden" id="' + rId + 'est" value="">'
@@ -1634,7 +1634,7 @@ function buildG126Form() {
       + '<td style="padding:6px 10px;font-weight:700;border:1px solid #e0e0e0;background:#f0f8ff">' + fi + '</td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px"><input type="text" id="' + fid + '_tipo" placeholder="Ej: Cambio filtro aceite" style="width:100%;border:none;font-size:11px;padding:3px;box-sizing:border-box"></td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_ult" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
-      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_act" step="0.5" min="0" placeholder="0" oninput="g126Calc('' + fid + '')" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
+      + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_act" step="0.5" min="0" placeholder="0" oninput="g126Calc(\'' + fid + '\')" style="width:70px;border:none;font-size:11px;text-align:center"></td>'
       + '<td style="border:1px solid #e0e0e0;padding:3px;text-align:center"><input type="number" id="' + fid + '_prox" step="0.5" min="0" placeholder="0" style="width:70px;border:none;font-size:11px;text-align:center;background:#fffde7"></td>'
       + '</tr>';
   }
@@ -1680,7 +1680,7 @@ function buildG126Form() {
     + '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;color:#555;display:block;margin-bottom:4px">Observaciones</label>'
     + '<textarea id="g126obs" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-    + '<button class="btn btn-outline" onclick="pmSwitch('g126')">🔄 Limpiar</button>'
+    + '<button class="btn btn-outline" onclick="pmSwitch(\'g126\')">🔄 Limpiar</button>'
     + '<button style="padding:10px 20px;background:#2e7d32;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer" onclick="g126Save()">💾 Registrar G-126</button>'
     + '</div></div></div>'
   );
@@ -3286,132 +3286,418 @@ function guardarActividadFlota() {
     .registrarActividadFlota(datos);
 }
 
-// ─── CERTIFICADOS ────────────────────────────────────────────
+// ─── CERTIFICADOS DICAPI v2 (PDF Drive + refrendas ilimitadas) ──
 function renderCertificados() {
+  var content = document.getElementById('content');
+  content.innerHTML = '<div class="page-header"><h2>📜 Certificados DICAPI</h2>'
+    + '<button class="btn btn-primary" onclick="certAbrirForm()">+ Nuevo Certificado</button></div>'
+    + '<div id="cert_body"><div class="empty-state"><div class="icon">⏳</div><div>Cargando certificados...</div></div></div>';
+
   google.script.run
-    .withSuccessHandler(embs => {
+    .withSuccessHandler(function(embs) {
       APP.data.embarcaciones = embs || [];
       google.script.run
-        .withSuccessHandler(certs => {
+        .withSuccessHandler(function(certs) {
           APP.data.certificados = certs || [];
-          buildCertificadosPage();
-        }).getCertificados();
-    }).getEmbarcaciones();
+          certBuildBody();
+        })
+        .withFailureHandler(function(err){ showToast(err.message, 'error'); })
+        .getCertificados();
+    })
+    .withFailureHandler(function(err){ showToast(err.message, 'error'); })
+    .getEmbarcaciones();
 }
 
-function buildCertificadosPage() {
-  const content = document.getElementById('content');
-  const vencidos = APP.data.certificados.filter(c => c.ESTADO_ALERTA === 'VENCIDO').length;
-  const criticos = APP.data.certificados.filter(c => c.ESTADO_ALERTA === 'CRITICO').length;
+function certBuildBody() {
+  var certs = APP.data.certificados || [];
+  var body  = document.getElementById('cert_body');
+  if (!body) return;
 
-  content.innerHTML = `
-    <div class="page-header">
-      <h2>📜 Certificados Estatutarios</h2>
-      <button class="btn btn-primary" onclick="abrirFormCertificado()">+ Nuevo Certificado</button>
-    </div>
-    <div class="cards-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
-      ${statCard('📜','Total Certs.', APP.data.certificados.length, 'Registrados', '')}
-      ${statCard('✅','Vigentes', APP.data.certificados.filter(c=>c.ESTADO_ALERTA==='VIGENTE').length, 'En regla', 'success')}
-      ${statCard('🟠','Por vencer', criticos, 'Próx. 30 días', 'warning')}
-      ${statCard('🔴','Vencidos', vencidos, '¡Acción inmediata!', 'danger')}
-    </div>
-    <div class="section">
-      <div class="section-body">
-        <div class="table-wrap">
-          ${buildTablaCertificados(APP.data.certificados)}
-        </div>
-      </div>
-    </div>`;
+  var vig = 0, alerta = 0, urgente = 0, vencido = 0;
+  for (var i = 0; i < certs.length; i++) {
+    var e = certs[i].ESTADO_ALERTA;
+    if (e === 'VIGENTE') vig++;
+    else if (e === 'ALERTA') alerta++;
+    else if (e === 'URGENTE') urgente++;
+    else if (e === 'VENCIDO') vencido++;
+  }
+
+  var html = '<div class="cards-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">'
+    + statCard('✅','Vigentes', vig, 'En regla', 'success')
+    + statCard('🟡','En alerta', alerta, 'Refrenda < 30 días', 'info')
+    + statCard('🟠','Urgentes', urgente, 'Refrenda < 15 días', 'warning')
+    + statCard('🔴','Vencidos', vencido, 'Acción inmediata', 'danger')
+    + '</div>';
+
+  if (!certs.length) {
+    html += '<div class="empty-state"><div class="icon">📜</div><div>No hay certificados registrados</div>'
+      + '<div style="margin-top:8px"><button class="btn btn-primary" onclick="certAbrirForm()">+ Registrar el primero</button></div></div>';
+    body.innerHTML = html;
+    return;
+  }
+
+  // Agrupar por embarcación
+  var porEmb = {};
+  for (var j = 0; j < certs.length; j++) {
+    var nom = certs[j].EMBARCACION || 'Sin embarcación';
+    if (!porEmb[nom]) porEmb[nom] = [];
+    porEmb[nom].push(certs[j]);
+  }
+
+  var nombres = Object.keys(porEmb).sort();
+  for (var k = 0; k < nombres.length; k++) {
+    var emb = nombres[k];
+    var lista = porEmb[emb];
+    html += '<div class="section" style="margin-bottom:16px">'
+      + '<div class="section-header" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:#e3f2fd;border-radius:8px 8px 0 0">'
+      + '<span style="font-size:18px">🚢</span>'
+      + '<strong style="font-size:15px;color:#1565c0">' + emb + '</strong>'
+      + '<span style="margin-left:auto;font-size:12px;color:#666">' + lista.length + ' certificado(s)</span>'
+      + '</div><div class="section-body" style="padding:12px">'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px">';
+
+    for (var m = 0; m < lista.length; m++) {
+      html += certCard(lista[m]);
+    }
+    html += '</div></div></div>';
+  }
+
+  body.innerHTML = html;
 }
 
-function buildTablaCertificados(data) {
-  if (!data.length) return '<div class="empty-state"><div class="icon">📜</div><div>No hay certificados registrados</div></div>';
-  return `<table>
-    <thead><tr><th>Embarcación</th><th>Tipo Certificado</th><th>N° Cert.</th><th>Organismo</th><th>Emisión</th><th>Vencimiento</th><th>Días Rest.</th><th>Estado</th></tr></thead>
-    <tbody>
-      ${data.sort((a,b)=>(a.DIAS_RESTANTES||9999)-(b.DIAS_RESTANTES||9999)).map(c => `
-        <tr>
-          <td>${c.EMBARCACION}</td>
-          <td><strong>${c.TIPO_CERTIFICADO}</strong></td>
-          <td><code>${c.NUMERO||'-'}</code></td>
-          <td>${c.ORGANISMO_EMISOR||'-'}</td>
-          <td>${c.FECHA_EMISION||'-'}</td>
-          <td>${c.FECHA_VENCIMIENTO||'-'}</td>
-          <td class="${c.ESTADO_ALERTA==='VENCIDO'?'criticidad-crit':c.ESTADO_ALERTA==='CRITICO'?'criticidad-high':c.ESTADO_ALERTA==='ALERTA'?'criticidad-med':''}">${c.DIAS_RESTANTES!==undefined?(c.DIAS_RESTANTES<0?'VENCIDO':c.DIAS_RESTANTES+' días'):'-'}</td>
-          <td><span class="badge ${c.ESTADO_ALERTA==='VIGENTE'?'badge-success':c.ESTADO_ALERTA==='ALERTA'?'badge-info':c.ESTADO_ALERTA==='CRITICO'?'badge-warning':'badge-danger'}">${c.ESTADO_ALERTA||'VIGENTE'}</span></td>
-        </tr>`).join('')}
-    </tbody>
-  </table>`;
+function certCard(c) {
+  var estado = c.ESTADO_ALERTA || 'VIGENTE';
+  var colores = {
+    'VIGENTE': { bg:'#e8f5e9', bd:'#66bb6a', tx:'#2e7d32', ic:'🟢' },
+    'ALERTA':  { bg:'#fffde7', bd:'#ffee58', tx:'#f9a825', ic:'🟡' },
+    'URGENTE': { bg:'#fff3e0', bd:'#ffa726', tx:'#e65100', ic:'🟠' },
+    'VENCIDO': { bg:'#ffebee', bd:'#ef5350', tx:'#c62828', ic:'🔴' }
+  };
+  var col = colores[estado] || colores['VIGENTE'];
+
+  // Texto del contador
+  var contador = '';
+  if (estado === 'VENCIDO') {
+    contador = 'VENCIDO';
+  } else {
+    var dias = c.DIAS_RESTANTES;
+    var hitoTxt = c.ES_VENCIMIENTO_FINAL ? 'Vencimiento final' : (c.PROXIMO_HITO || 'Próxima fecha');
+    contador = dias + ' días → ' + hitoTxt;
+  }
+
+  var totalRef = c.TOTAL_REFRENDAS || 0;
+  var idEsc = (c.ID_CERT || '').replace(/'/g, "\\'");
+
+  var html = '<div style="border:2px solid ' + col.bd + ';border-radius:10px;overflow:hidden;background:white">'
+    // Cabecera de la tarjeta
+    + '<div style="background:' + col.bg + ';padding:10px 12px;border-bottom:1px solid ' + col.bd + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:start;gap:8px">'
+    + '<div style="font-weight:700;font-size:13px;color:#333;line-height:1.3">' + (c.TIPO_CERTIFICADO || 'Certificado') + '</div>'
+    + '<span style="font-size:16px">' + col.ic + '</span>'
+    + '</div>'
+    + '<div style="font-size:11px;color:#666;margin-top:2px">N.° ' + (c.NUMERO || '—') + ' · ' + (c.ORGANISMO_EMISOR || 'DICAPI') + '</div>'
+    + '</div>'
+    // Cuerpo
+    + '<div style="padding:10px 12px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:11px;color:#777;margin-bottom:6px">'
+    + '<span>📅 Emisión: <strong>' + (c.FECHA_EMISION || '—') + '</strong></span>'
+    + '</div>'
+    + '<div style="background:' + col.bg + ';border-radius:6px;padding:8px;text-align:center;margin:6px 0">'
+    + '<div style="font-size:16px;font-weight:800;color:' + col.tx + '">' + contador + '</div>'
+    + '<div style="font-size:10px;color:#888;margin-top:2px">Próxima fecha: ' + (c.PROXIMA_FECHA || '—') + '</div>'
+    + '</div>';
+
+  // Chip de refrendas
+  if (totalRef > 0) {
+    html += '<div style="font-size:11px;color:#666;margin:6px 0"><span style="background:#e1bee7;color:#6a1b9a;padding:2px 8px;border-radius:10px;font-weight:600">🔄 ' + totalRef + ' refrenda(s)</span></div>';
+  }
+
+  // Botones de acción
+  html += '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">';
+  if (c.ARCHIVO_URL) {
+    html += '<button class="btn btn-sm" style="flex:1;background:#1565c0;color:white;font-size:11px;padding:6px" onclick="certVerPDF(\'' + (c.ARCHIVO_URL || '').replace(/'/g, "\\'") + '\')">📄 Ver PDF</button>';
+  } else {
+    html += '<span style="flex:1;font-size:10px;color:#aaa;text-align:center;padding:6px;border:1px dashed #ddd;border-radius:6px">Sin PDF</span>';
+  }
+  html += '<button class="btn btn-sm btn-outline" style="font-size:11px;padding:6px 10px" onclick="certAbrirRefrenda(\'' + idEsc + '\')">+ Refrenda</button>';
+  html += '<button class="btn btn-sm btn-outline" style="font-size:11px;padding:6px 10px" onclick="certRenovarPDF(\'' + idEsc + '\')">🔄 PDF</button>';
+  html += '</div>';
+
+  html += '</div></div>';
+  return html;
 }
 
-function abrirFormCertificado() {
-  const embs = APP.data.embarcaciones.map(e => `<option value="${e.ID}" data-nombre="${e.NOMBRE}">${e.NOMBRE}</option>`).join('');
-  const tiposCert = ['Certificado de Matrícula','Certificado de Seguridad de Buques','Certificado de Línea de Carga','Certificado de Prevención de Contaminación','Certificado Rádioeléctrico','Certificado de Gestión de Seguridad','Certificado ISPS','Licencia Inspección Anual','Certificado Francobordo','Inspección de Casco'];
-
-  openModal('📜 Registrar Certificado', `
-    <div class="form-grid-2">
-      <div class="form-group">
-        <label class="form-label">Embarcación <span>*</span></label>
-        <select class="form-control" id="crt_emb">${embs}</select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Tipo de Certificado <span>*</span></label>
-        <select class="form-control" id="crt_tipo">
-          ${tiposCert.map(t=>`<option>${t}</option>`).join('')}
-          <option value="OTRO">Otro...</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Número de Certificado</label>
-        <input class="form-control" id="crt_num" placeholder="Nro. de certificado">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Organismo Emisor</label>
-        <input class="form-control" id="crt_org" placeholder="DICAPI, Lloyd's, etc.">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Fecha de Emisión</label>
-        <input class="form-control" type="date" id="crt_emision">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Fecha de Vencimiento <span>*</span></label>
-        <input class="form-control" type="date" id="crt_venc">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Días de Alerta Previa</label>
-        <input class="form-control" type="number" id="crt_alerta" value="30">
-      </div>
-      <div class="form-group form-full">
-        <label class="form-label">Observaciones</label>
-        <textarea class="form-control" id="crt_obs" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarCertificadoForm()">💾 Guardar</button>
-    </div>
-  `);
+function certVerPDF(url) {
+  if (!url) { showToast('Este certificado no tiene PDF adjunto', 'error'); return; }
+  window.open(url, '_blank');
 }
 
-function guardarCertificadoForm() {
-  const embEl = document.getElementById('crt_emb');
-  const emb = APP.data.embarcaciones.find(e => e.ID === embEl.value);
-  const datos = {
+// ─── Formulario nuevo certificado ───────────────────────────────
+function certAbrirForm() {
+  var embs = '';
+  for (var i = 0; i < APP.data.embarcaciones.length; i++) {
+    var e = APP.data.embarcaciones[i];
+    embs += '<option value="' + e.ID + '" data-nombre="' + e.NOMBRE + '">' + e.NOMBRE + '</option>';
+  }
+  var tiposCert = ['Certificado de Matrícula','Certificado de Seguridad de Buques','Certificado de Línea de Carga','Certificado de Prevención de Contaminación','Certificado Rádioeléctrico','Certificado de Gestión de Seguridad','Certificado ISPS','Licencia Inspección Anual','Certificado Francobordo','Inspección de Casco'];
+  var tipoOpts = '';
+  for (var t = 0; t < tiposCert.length; t++) {
+    tipoOpts += '<option>' + tiposCert[t] + '</option>';
+  }
+  tipoOpts += '<option value="OTRO">Otro...</option>';
+
+  var html = '<div class="form-grid-2">'
+    + '<div class="form-group"><label class="form-label">Embarcación <span>*</span></label>'
+    + '<select class="form-control" id="crt_emb">' + embs + '</select></div>'
+    + '<div class="form-group"><label class="form-label">Tipo de Certificado <span>*</span></label>'
+    + '<select class="form-control" id="crt_tipo">' + tipoOpts + '</select></div>'
+    + '<div class="form-group"><label class="form-label">Número de Certificado</label>'
+    + '<input class="form-control" id="crt_num" placeholder="N.° de certificado"></div>'
+    + '<div class="form-group"><label class="form-label">Organismo Emisor</label>'
+    + '<input class="form-control" id="crt_org" value="DICAPI" placeholder="DICAPI"></div>'
+    + '<div class="form-group"><label class="form-label">Fecha de Emisión <span>*</span></label>'
+    + '<input class="form-control" type="date" id="crt_emision"></div>'
+    + '<div class="form-group"><label class="form-label">Fecha de Vencimiento Final <span>*</span></label>'
+    + '<input class="form-control" type="date" id="crt_venc"></div>'
+    + '<div class="form-group"><label class="form-label">Días de Alerta Previa</label>'
+    + '<input class="form-control" type="number" id="crt_alerta" value="30"></div>'
+    + '<div class="form-group form-full">'
+    + '<label class="form-label">📎 Adjuntar Certificado (PDF)</label>'
+    + '<input class="form-control" type="file" id="crt_pdf" accept="application/pdf" onchange="certOnFileSelect(this)">'
+    + '<div id="crt_pdf_status" style="font-size:11px;color:#888;margin-top:4px">Selecciona el PDF del certificado emitido</div>'
+    + '</div>'
+    + '<div class="form-group form-full"><label class="form-label">Observaciones</label>'
+    + '<textarea class="form-control" id="crt_obs" rows="2"></textarea></div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>'
+    + '<button class="btn btn-primary" id="crt_save_btn" onclick="certGuardar()">💾 Guardar Certificado</button>'
+    + '</div>';
+
+  openModal('📜 Registrar Certificado DICAPI', html);
+}
+
+// Variables temporales para el PDF cargado
+var CERT_PDF_TEMP = { base64:null, nombre:null, driveId:null, url:null };
+
+function certOnFileSelect(input) {
+  var status = document.getElementById('crt_pdf_status');
+  if (!input.files || !input.files.length) return;
+  var file = input.files[0];
+
+  if (file.type !== 'application/pdf') {
+    status.innerHTML = '<span style="color:#c62828">⚠️ El archivo debe ser un PDF</span>';
+    input.value = '';
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    status.innerHTML = '<span style="color:#c62828">⚠️ El PDF supera 25 MB</span>';
+    input.value = '';
+    return;
+  }
+
+  status.innerHTML = '⏳ Leyendo archivo...';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var base64 = e.target.result.split(',')[1];  // quitar el prefijo data:...
+    CERT_PDF_TEMP.base64 = base64;
+    CERT_PDF_TEMP.nombre = file.name;
+    status.innerHTML = '<span style="color:#2e7d32">✅ ' + file.name + ' listo para subir (' + Math.round(file.size/1024) + ' KB)</span>';
+  };
+  reader.onerror = function() {
+    status.innerHTML = '<span style="color:#c62828">⚠️ Error al leer el archivo</span>';
+  };
+  reader.readAsDataURL(file);
+}
+
+function certGuardar() {
+  var embEl = document.getElementById('crt_emb');
+  var emb   = null;
+  for (var i = 0; i < APP.data.embarcaciones.length; i++) {
+    if (APP.data.embarcaciones[i].ID === embEl.value) { emb = APP.data.embarcaciones[i]; break; }
+  }
+  var tipo    = document.getElementById('crt_tipo').value;
+  var emision = document.getElementById('crt_emision').value;
+  var venc    = document.getElementById('crt_venc').value;
+
+  if (!embEl.value) { showToast('Selecciona la embarcación', 'error'); return; }
+  if (!emision)     { showToast('Ingresa la fecha de emisión', 'error'); return; }
+  if (!venc)        { showToast('Ingresa la fecha de vencimiento final', 'error'); return; }
+
+  var btn = document.getElementById('crt_save_btn');
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Guardando...';
+
+  var datos = {
     ID_EMBARCACION: embEl.value,
     EMBARCACION: emb ? emb.NOMBRE : embEl.options[embEl.selectedIndex].text,
-    TIPO_CERTIFICADO: document.getElementById('crt_tipo').value,
+    TIPO_CERTIFICADO: tipo,
     NUMERO: document.getElementById('crt_num').value,
     ORGANISMO_EMISOR: document.getElementById('crt_org').value,
-    FECHA_EMISION: document.getElementById('crt_emision').value,
-    FECHA_VENCIMIENTO: document.getElementById('crt_venc').value,
+    FECHA_EMISION: emision,
+    FECHA_VENCIMIENTO_FINAL: venc,
     DIAS_ALERTA: document.getElementById('crt_alerta').value,
-    OBSERVACIONES: document.getElementById('crt_obs').value
+    OBSERVACIONES: document.getElementById('crt_obs').value,
+    REFRENDAS_JSON: '[]'
   };
+
+  // Si hay PDF cargado, subirlo primero
+  if (CERT_PDF_TEMP.base64) {
+    btn.innerHTML = '⏳ Subiendo PDF...';
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          datos.ARCHIVO_DRIVE_ID = res.fileId;
+          datos.ARCHIVO_URL      = res.url;
+          datos.ARCHIVO_NOMBRE   = res.nombre;
+        }
+        certGuardarFinal(datos, btn);
+      })
+      .withFailureHandler(function(err) {
+        showToast('Error al subir PDF: ' + err.message, 'error');
+        btn.disabled = false; btn.innerHTML = '💾 Guardar Certificado';
+      })
+      .subirCertificadoPDF(CERT_PDF_TEMP.base64, CERT_PDF_TEMP.nombre, 'CRT');
+  } else {
+    certGuardarFinal(datos, btn);
+  }
+}
+
+function certGuardarFinal(datos, btn) {
+  btn.innerHTML = '⏳ Registrando...';
   google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) { closeModal(); showToast(res.mensaje, 'success'); renderCertificados(); }
-      else showToast(res.error, 'error');
-    }).guardarCertificado(datos);
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        closeModal();
+        showToast(res.mensaje, 'success');
+        CERT_PDF_TEMP = { base64:null, nombre:null, driveId:null, url:null };
+        renderCertificados();
+      } else {
+        showToast((res && res.error) || 'Error al guardar', 'error');
+        btn.disabled = false; btn.innerHTML = '💾 Guardar Certificado';
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast(err.message, 'error');
+      btn.disabled = false; btn.innerHTML = '💾 Guardar Certificado';
+    })
+    .guardarCertificado(datos);
+}
+
+// ─── Agregar refrenda a un certificado existente ────────────────
+function certAbrirRefrenda(idCert) {
+  var cert = null;
+  for (var i = 0; i < APP.data.certificados.length; i++) {
+    if (APP.data.certificados[i].ID_CERT === idCert) { cert = APP.data.certificados[i]; break; }
+  }
+  if (!cert) { showToast('Certificado no encontrado', 'error'); return; }
+
+  var totalRef = cert.TOTAL_REFRENDAS || 0;
+  var idEsc = idCert.replace(/'/g, "\\'");
+
+  var html = '<div style="background:#f3e5f5;padding:12px;border-radius:8px;margin-bottom:14px">'
+    + '<div style="font-size:13px;font-weight:700;color:#6a1b9a">' + (cert.TIPO_CERTIFICADO || '') + '</div>'
+    + '<div style="font-size:11px;color:#666;margin-top:2px">' + (cert.EMBARCACION || '') + ' · N.° ' + (cert.NUMERO || '—') + '</div>'
+    + '<div style="font-size:11px;color:#888;margin-top:4px">Refrendas actuales: <strong>' + totalRef + '</strong> · Esta será la refrenda N.° ' + (totalRef + 1) + '</div>'
+    + '</div>'
+    + '<div class="form-grid-2">'
+    + '<div class="form-group"><label class="form-label">Fecha de esta Refrenda <span>*</span></label>'
+    + '<input class="form-control" type="date" id="ref_fecha"></div>'
+    + '<div class="form-group form-full"><label class="form-label">Observación</label>'
+    + '<input class="form-control" id="ref_obs" placeholder="Detalle de la refrenda"></div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>'
+    + '<button class="btn btn-primary" id="ref_btn" onclick="certGuardarRefrenda(\'' + idEsc + '\')">🔄 Agregar Refrenda N.° ' + (totalRef + 1) + '</button>'
+    + '</div>';
+
+  openModal('🔄 Nueva Refrenda', html);
+}
+
+function certGuardarRefrenda(idCert) {
+  var fecha = document.getElementById('ref_fecha').value;
+  if (!fecha) { showToast('Ingresa la fecha de la refrenda', 'error'); return; }
+
+  var btn = document.getElementById('ref_btn');
+  btn.disabled = true; btn.innerHTML = '⏳ Guardando...';
+
+  var refrenda = { fecha: fecha, obs: document.getElementById('ref_obs').value };
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        closeModal();
+        showToast(res.mensaje, 'success');
+        renderCertificados();
+      } else {
+        showToast((res && res.error) || 'Error', 'error');
+        btn.disabled = false;
+      }
+    })
+    .withFailureHandler(function(err) { showToast(err.message, 'error'); btn.disabled = false; })
+    .agregarRefrenda(idCert, refrenda);
+}
+
+// ─── Renovar el PDF de un certificado ───────────────────────────
+function certRenovarPDF(idCert) {
+  var idEsc = idCert.replace(/'/g, "\\'");
+  var html = '<div style="background:#e3f2fd;padding:12px;border-radius:8px;margin-bottom:14px;font-size:12px;color:#1565c0">'
+    + 'Sube el nuevo PDF del certificado. El anterior se conservará en el historial.</div>'
+    + '<div class="form-group form-full">'
+    + '<label class="form-label">📎 Nuevo PDF del Certificado</label>'
+    + '<input class="form-control" type="file" id="renov_pdf" accept="application/pdf" onchange="certOnFileSelectRenov(this)">'
+    + '<div id="renov_status" style="font-size:11px;color:#888;margin-top:4px">Selecciona el PDF actualizado</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    + '<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>'
+    + '<button class="btn btn-primary" id="renov_btn" onclick="certGuardarRenovPDF(\'' + idEsc + '\')" disabled>🔄 Subir Nuevo PDF</button>'
+    + '</div>';
+  openModal('🔄 Renovar PDF del Certificado', html);
+}
+
+function certOnFileSelectRenov(input) {
+  var status = document.getElementById('renov_status');
+  var btn = document.getElementById('renov_btn');
+  if (!input.files || !input.files.length) return;
+  var file = input.files[0];
+  if (file.type !== 'application/pdf') {
+    status.innerHTML = '<span style="color:#c62828">⚠️ Debe ser un PDF</span>';
+    input.value = ''; return;
+  }
+  status.innerHTML = '⏳ Leyendo...';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    CERT_PDF_TEMP.base64 = e.target.result.split(',')[1];
+    CERT_PDF_TEMP.nombre = file.name;
+    status.innerHTML = '<span style="color:#2e7d32">✅ ' + file.name + ' listo</span>';
+    btn.disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+function certGuardarRenovPDF(idCert) {
+  if (!CERT_PDF_TEMP.base64) { showToast('Selecciona un PDF', 'error'); return; }
+  var btn = document.getElementById('renov_btn');
+  btn.disabled = true; btn.innerHTML = '⏳ Subiendo...';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        google.script.run
+          .withSuccessHandler(function(r2) {
+            closeModal();
+            showToast('PDF actualizado correctamente', 'success');
+            CERT_PDF_TEMP = { base64:null, nombre:null, driveId:null, url:null };
+            renderCertificados();
+          })
+          .withFailureHandler(function(err){ showToast(err.message, 'error'); btn.disabled=false; })
+          .actualizarPDFCertificado(idCert, res.fileId, res.url, res.nombre);
+      } else {
+        showToast('Error al subir', 'error'); btn.disabled = false;
+      }
+    })
+    .withFailureHandler(function(err){ showToast(err.message, 'error'); btn.disabled=false; })
+    .subirCertificadoPDF(CERT_PDF_TEMP.base64, CERT_PDF_TEMP.nombre, idCert);
 }
 
 // ─── PLAN DE MANTENIMIENTO ───────────────────────────────────
